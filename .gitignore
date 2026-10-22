@@ -1,0 +1,51 @@
+# Dependencies
+node_modules/
+# Keep npm lockfiles committed for reproducible root + server installs.
+yarn.lock
+pnpm-lock.yaml
+
+# Build
+dist/
+build/
+
+# Environment
+.env
+.env.local
+.env.*
+!.env.example
+# Backup-ovi env-a (server/.env.backup-*) nikada ne idu u repo
+*.env.backup*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Temporary
+.tmp/
+.cache/
+
+# Lokalno fallback skladište (badges/connected accounts/sesije dok schema-ALL.sql
+# nije pokrenut) — ne treba u repozitorijumu
+server/.data/
+.data/
+
+# QA artefakti
+qa-*.mjs
+qa-*.png
+.qa/shots/
+*.snap.png
+
+# Test / coverage izlaz
+coverage/

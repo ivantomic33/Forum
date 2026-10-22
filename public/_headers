@@ -1,0 +1,16 @@
+# F-20 — sigurnosna zaglavlja za statički frontend (Netlify / Cloudflare Pages)
+# Iste vrednosti za Vite dev/preview postavlja `scripts/security-headers.mjs`.
+# Ako se hosting konfiguriše ručno (Nginx/Apache), prekopiraj ove blokove.
+#
+# NAPOMENA: `style-src` zadržava `unsafe-inline` zbog React style atributa;
+# `script-src` ga NEMA. `connect-src` dopuni domenom API-ja (VITE_API_URL).
+# Fontovi su self-hostovani (F-23), pa nema fonts.googleapis/gstatic.
+
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: https: blob:; connect-src 'self' https://*.supabase.co; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'; upgrade-insecure-requests
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
+  Cross-Origin-Opener-Policy: same-origin
+  Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
