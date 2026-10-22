@@ -57,8 +57,8 @@ import { initErrorTracking, captureError, flushErrorTracking } from './lib/sentr
 // instrumentaciju, ali SDK hvata `uncaughtException`/`unhandledRejection`).
 initErrorTracking();
 
-const app = express();
-const PORT = process.env.PORT || 4000;
+export function createApp(): express.Express {
+  const app = express();
 
 /**
  * Render/Railway/Heroku proxy: bez ovoga `req.ip` je IP proksija i svi
@@ -527,6 +527,18 @@ app.get('/sitemap.xml', async (_req, res, next) => {
 // 404 i centralni error handler (generičke poruke u produkciji + Pino log)
 app.use(notFoundHandler);
 app.use(errorHandler);
+
+  return app;
+}
+
+const PORT = process.env.PORT || 4000;
+
+/**
+ * Integracioni testovi (analiza §7.6) dobijaju ISTU aplikaciju bez `listen`-a —
+ * inače bi rute/limiteri mogli da se razlikuju od produkcije. Zato se sve vezuje
+ * kroz `createApp()`; na dnu `index.ts` samo sluša na portu.
+ */
+const app = createApp();
 
 app.listen(PORT, async () => {
   // F-32 — bez `auth_sessions` nijedna prijava ne bi radila (500 na login).

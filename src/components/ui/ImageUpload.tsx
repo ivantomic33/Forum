@@ -1,7 +1,9 @@
 import { useRef, useState } from 'react';
-import { ImagePlus, Loader2 } from 'lucide-react';
+import { ImagePlus, Images, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
+import { Modal } from './Modal';
+import { MediaGallery } from './MediaGallery';
 
 /**
  * IMAGE UPLOAD (2.6.2 — Supabase Storage)
@@ -26,11 +28,22 @@ export interface ImageUploadProps {
   /** `compact` = samo dugme, bez opisa (koristi se pored polja za URL). */
   compact?: boolean;
   disabled?: boolean;
+  /** 2.6.3 — dozvoli biranje već otpremljene slike iz medijske galerije. */
+  allowGallery?: boolean;
 }
 
-export function ImageUpload({ kind, onUploaded, label, hint, compact = false, disabled = false }: ImageUploadProps) {
+export function ImageUpload({
+  kind,
+  onUploaded,
+  label,
+  hint,
+  compact = false,
+  disabled = false,
+  allowGallery = false,
+}: ImageUploadProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [busy, setBusy] = useState(false);
+  const [galleryOpen, setGalleryOpen] = useState(false);
 
   const pick = async (file: File | undefined) => {
     if (!file || busy) return;
@@ -74,6 +87,16 @@ export function ImageUpload({ kind, onUploaded, label, hint, compact = false, di
       {!compact && label && <span className="block text-sm font-bold text-white/85">{label}</span>}
       <div className="flex flex-wrap items-center gap-2">
         {button}
+        {allowGallery && (
+          <button
+            type="button"
+            disabled={disabled || busy}
+            onClick={() => setGalleryOpen(true)}
+            className={compact ? 'ui-btn br-secondary ui-btn-sm' : 'ui-btn br-secondary ui-btn-sm gap-2'}
+          >
+            <Images size={14} /> Galerija
+          </button>
+        )}
         {!compact && (
           <span className="text-[11px] text-white/45">{hint ?? `JPG, PNG, WebP ili GIF · do ${MAX_MB} MB`}</span>
         )}
@@ -86,6 +109,17 @@ export function ImageUpload({ kind, onUploaded, label, hint, compact = false, di
         tabIndex={-1}
         onChange={(event) => void pick(event.target.files?.[0])}
       />
+      {allowGallery && galleryOpen && (
+        <Modal open onClose={() => setGalleryOpen(false)} title="Medijska galerija" size="lg">
+          <MediaGallery
+            compact
+            onPick={(url) => {
+              onUploaded(url);
+              setGalleryOpen(false);
+            }}
+          />
+        </Modal>
+      )}
     </div>
   );
 }

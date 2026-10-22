@@ -746,6 +746,22 @@ export const api = {
     /** 2.6.2 — da li je Supabase Storage podešen (server ne izlaže ključeve). */
     media: () =>
       request<{ configured: boolean; bucket: string; maxUploadMb: number }>('/admin/media'),
+    /** 2.6.3 — medijska galerija (lista uploadovanih slika). */
+    mediaItems: (limit = 60) =>
+      request<{
+        configured: boolean;
+        items: Array<{
+          path: string;
+          name: string;
+          url: string;
+          size: number | null;
+          createdAt: string | null;
+          kind: string | null;
+          ownerId: string | null;
+        }>;
+      }>(`/admin/media/items?limit=${limit}`),
+    deleteMedia: (path: string) =>
+      request<{ message: string }>(`/admin/media/items?path=${encodeURIComponent(path)}`, { method: 'DELETE' }),
     stats: () =>
       request<{
         totalUsers: number;

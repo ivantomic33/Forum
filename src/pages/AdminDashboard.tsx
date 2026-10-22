@@ -27,6 +27,7 @@ import {
   MessageCircle,
   Radio,
   Zap,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
@@ -39,8 +40,9 @@ import { ImageUpload } from '../components/ui';
 import { useAuthStore } from '../store/authStore';
 import { Badge } from '../components/ui/Badge';
 import { Skeleton } from '../components/ui/Feedback';
+import { MediaGallery } from '../components/ui/MediaGallery';
 
-type AdminTab = 'articles' | 'users' | 'forum' | 'comments' | 'reports' | 'audit' | 'newsletter' | 'settings';
+type AdminTab = 'articles' | 'users' | 'forum' | 'comments' | 'reports' | 'audit' | 'newsletter' | 'media' | 'settings';
 
 const ARTICLE_CATEGORIES = ['Vesti', 'Hardware', 'Najave', 'Recenzija', 'Lista', 'Specijal'];
 const SUBFORUMS = [
@@ -691,6 +693,7 @@ export default function AdminDashboard() {
       ? [
           { id: 'audit' as AdminTab, label: 'Revizorski log', icon: History },
           { id: 'newsletter' as AdminTab, label: 'Newsletter', icon: Mail },
+          { id: 'media' as AdminTab, label: 'Mediji', icon: ImageIcon },
           { id: 'settings' as AdminTab, label: 'Podešavanja', icon: Sliders },
         ]
       : []),
@@ -1510,6 +1513,21 @@ export default function AdminDashboard() {
                     ))
                   )}
                 </div>
+              </div>
+            )}
+
+            {/* TAB: MEDIJSKA GALERIJA (2.6.3) */}
+            {activeTab === 'media' && isAdmin && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-lg font-extrabold text-white">Medijska galerija</h2>
+                    <p className="text-sm text-[var(--color-text-tertiary)]">
+                      Sve slike iz Storage bucketa — avatari, korice, dokazi i slike članaka.
+                    </p>
+                  </div>
+                </div>
+                <MediaGallery />
               </div>
             )}
 

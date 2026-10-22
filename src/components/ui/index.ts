@@ -13,5 +13,6 @@ export { OnlineAvatar, useUserOnline, useUserStatus, ONLINE_LABEL, AWAY_LABEL, O
 export type { OnlineAvatarProps, OnlineAvatarSize } from './OnlineAvatar';
 export { ImageUpload } from './ImageUpload';
 export type { ImageUploadProps } from './ImageUpload';
+export { MediaGallery } from './MediaGallery';
 export type { VerifiedBadgeProps, VerifiedBadgeSize, UserNameProps } from './VerifiedBadge';
 export { cn } from './cn';

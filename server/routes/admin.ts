@@ -7,7 +7,7 @@ import { sendNewsletterCampaign, appUrl } from '../lib/email.js';
 import { newsletterCampaignSchema, validate } from '../lib/schemas.js';
 import { parseSegment, sanitizeSubject, subscriberSegment } from '../lib/newsletter.js';
 import { unsubscribePageUrl } from './newsletter.js';
-import { MAX_UPLOAD_BYTES, STORAGE_BUCKET, storageConfigured } from '../lib/storage.js';
+import { MAX_UPLOAD_BYTES, STORAGE_BUCKET, deleteMedia, listMedia, storageConfigured } from '../lib/storage.js';
 
 const router = Router();
 
@@ -95,6 +95,44 @@ router.get('/media', (_req: AuthRequest, res) => {
     bucket: STORAGE_BUCKET,
     maxUploadMb: Math.round(MAX_UPLOAD_BYTES / 1024 / 1024),
   });
+});
+
+// =====================
+// GET /api/admin/media/items (2.6.3) — medijska galerija (lista + brisanje)
+// =====================
+router.get('/media/items', authorize('admin', 'moderator'), async (req: AuthRequest, res, next) => {
+  try {
+    if (!storageConfigured()) {
+      return res.json({ configured: false, items: [] });
+    }
+    const limit = Math.min(Math.max(Number(req.query.limit) || 60, 1), 200);
+    res.json({ configured: true, items: await listMedia(limit) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// =====================
+// DELETE /api/admin/media/items?path=<userId>/<file> (2.6.3)
+// =====================
+router.delete('/media/items', authorize('admin'), async (req: AuthRequest, res, next) => {
+  try {
+    const path = typeof req.query.path === 'string' ? req.query.path : '';
+    if (!path) return res.status(400).json({ error: 'Nedostaje putanja fajla.' });
+    await deleteMedia(path);
+    await recordAudit({
+      actorId: req.user!.id,
+      actorUsername: req.user!.username,
+      targetId: path,
+      targetUsername: path,
+      action: 'comment_deleted',
+      from: { media: path },
+      to: null,
+    }).catch(() => undefined);
+    res.json({ message: 'Fajl je obrisan.' });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // =====================

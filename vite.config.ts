@@ -2,9 +2,11 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 // F-20 — CSP/HSTS/frame-ancestors i za frontend (Helmet pokriva samo API).
 import { securityHeadersPlugin } from './scripts/security-headers.mjs';
+// Analiza §7.7 — upload source mapa u Sentry (samo uz SENTRY_AUTH_TOKEN).
+import { sentrySourceMaps } from './scripts/sentry-sourcemaps.mjs';
 
 export default defineConfig({
-  plugins: [react(), securityHeadersPlugin()],
+  plugins: [react(), securityHeadersPlugin(), sentrySourceMaps()],
   server: {
     port: 5173,
     open: false,

@@ -48,15 +48,16 @@ router.get('/:subforum/threads', async (req, res, next) => {
       search: typeof search === 'string' ? search.slice(0, 100) : undefined,
     };
 
-    // Cursor paginacija: `cursor` je ID poslednje teme prethodne strane.
-    // Keyset prístup: prvo se SQL-om dobija offset kursora (LIMIT 1), pa strana.
+    // B-10 — cursor paginacija: `cursor` je ID poslednje teme prethodne strane.
+    // Offset se računa u bazi (COUNT redova „pre“ kursora po istom sortu), a ne
+    // učitavanjem prvih 200 redova u JS — zato strana 3+ nikad ne vraća prazno.
     let offset = 0;
     if (typeof cursor === 'string' && cursor) {
-      // Prvo pročitaj ID-jeve prve strane da se nađe offset kursora — bez učitavanja PUNE liste.
-      const page = await db.forum.listThreads({ ...filters, limit: 200, offset: 0 });
-      const found = page.findIndex((item) => item.id === cursor);
-      if (found < 0) return res.json({ threads: [], total: await db.forum.countThreads(filters), hasMore: false, nextCursor: null });
-      offset = found + 1;
+      const cursorOffset = await db.forum.threadCursorOffset(filters, cursor);
+      if (cursorOffset === null) {
+        return res.json({ threads: [], total: await db.forum.countThreads(filters), hasMore: false, nextCursor: null });
+      }
+      offset = cursorOffset;
     }
 
     const [threads, total] = await Promise.all([
@@ -64,13 +65,10 @@ router.get('/:subforum/threads', async (req, res, next) => {
       db.forum.countThreads(filters),
     ]);
 
-    // `authorRole` / `authorLevel` — frontend ih koristi za rank značke na listi.
+    // B-11 — autori stranice u jednom upitu (`users.id IN (…)`), ne N+1.
     const authorIds = [...new Set(threads.map((thread) => thread.authorId).filter(Boolean))];
-    const authors = new Map(
-      (await Promise.all(authorIds.map((authorId) => db.users.findById(authorId).catch(() => null))))
-        .filter((user): user is NonNullable<typeof user> => Boolean(user))
-        .map((user) => [user.id, user]),
-    );
+    const authorList = await db.users.findByIds(authorIds).catch(() => []);
+    const authors = new Map(authorList.map((user) => [user.id, user]));
     // 2.6.1 — „Online sada“: jedan upit za sve autore na strani liste.
     // 2.6.2 — uz to stiže i `authorStatus` (`online | away | offline`).
     const presence = await presenceMap(authorIds).catch(() => new Map<string, 'online' | 'away' | 'offline'>());

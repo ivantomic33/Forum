@@ -44,6 +44,9 @@ function getClient(): SupabaseClient | null {
   if (clientChecked) return client;
   clientChecked = true;
 
+  // Isti uslov kao u data layer-u: testovi NIKAD ne pišu u pravu bazu.
+  if (process.env.NODE_ENV === 'test' && process.env.ALLOW_SUPABASE_IN_TESTS !== '1') return null;
+
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_KEY;
   if (!url || !key || url.includes('your-project') || key.length < 20) return null;

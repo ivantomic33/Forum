@@ -337,6 +337,8 @@ export interface UserRepo {
   /** F-18 — rang-lista sortirana i ograničena u SQL-u (materijalizovani keš po potrebi). */
   leaderboard(options: { sort: 'karma' | 'level'; limit: number }): Promise<UserRecord[]>;
   findById(id: string): Promise<UserRecord | null>;
+  /** B-11 — batch `users.id IN (…)` za liste autora (bez N+1 upita). */
+  findByIds(ids: string[]): Promise<UserRecord[]>;
   findByUsername(username: string): Promise<UserRecord | null>;
   findByEmail(email: string): Promise<UserRecord | null>;
   create(user: UserRecord): Promise<UserRecord>;
@@ -421,6 +423,8 @@ export interface ForumRepo {
   }): Promise<ThreadRecord[]>;
   /** Broj tema za filter — COUNT u SQL-u, bez učitavanja redova. */
   countThreads(filter?: { subforum?: string; search?: string; authorId?: string }): Promise<number>;
+  /** B-10 — offset jednog reda za keyset kursor (`LIMIT 1 … ORDER BY <isti sort>`). */
+  threadCursorOffset(filter: { subforum?: string; sort?: 'hot' | 'new' | 'top'; search?: string }, cursorId: string): Promise<number | null>;
   /** F-18 — SUM pregleda u SQL-u (RPC `sum_thread_views`). */
   sumViews(): Promise<number>;
   findThread(id: string): Promise<ThreadRecord | null>;
@@ -545,6 +549,10 @@ class MemoryUserRepo implements UserRepo {
   constructor(private store: MemoryStore) {}
   async findAll() { return [...this.store.users]; }
   async findById(id: string) { return this.store.users.find((u) => u.id === id) ?? null; }
+  async findByIds(ids: string[]) {
+    const wanted = new Set(ids);
+    return this.store.users.filter((u) => wanted.has(u.id));
+  }
   async findByUsername(username: string) {
     return this.store.users.find((u) => u.username.toLowerCase() === username.toLowerCase()) ?? null;
   }
@@ -743,6 +751,12 @@ class MemoryForumRepo implements ForumRepo {
   async sumViews() {
     return this.store.threads.reduce((sum, t) => sum + (t.views || 0), 0);
   }
+  /** B-10 — indeks kursora u ISTOM sortu koji koristi strana (bez učitavanja 200 redova). */
+  async threadCursorOffset(filter: { subforum?: string; sort?: 'hot' | 'new' | 'top'; search?: string }, cursorId: string) {
+    const list = this.sortedThreads(filter);
+    const index = list.findIndex((t) => t.id === cursorId);
+    return index < 0 ? null : index + 1;
+  }
   async listThreads(filter?: {
     subforum?: string;
     sort?: 'hot' | 'new' | 'top';
@@ -752,6 +766,16 @@ class MemoryForumRepo implements ForumRepo {
     cursorId?: string;
     countOnly?: boolean;
   }) {
+    const list = this.sortedThreads(filter);
+    // B-10 — poštuj limit/offset kao Supabase adapter (ranije je memorija vraćala sve).
+    if (filter?.offset || filter?.limit) {
+      const start = filter?.offset ?? 0;
+      return list.slice(start, start + (filter?.limit ?? 100));
+    }
+    return list;
+  }
+  /** Zajednički sort za listu i za kursor (isti redosled = ispravan offset). */
+  private sortedThreads(filter?: { subforum?: string; sort?: 'hot' | 'new' | 'top'; search?: string }) {
     // Soft-deleted teme se ne prikazuju u listama (isto kao Supabase adapter).
     let list = this.store.threads.filter((t) => !t.isDeleted);
     if (filter?.subforum) list = list.filter((t) => t.subforum === filter.subforum);
@@ -760,9 +784,9 @@ class MemoryForumRepo implements ForumRepo {
       list = list.filter((t) => t.title.toLowerCase().includes(q) || t.content.toLowerCase().includes(q));
     }
     const sort = filter?.sort ?? 'hot';
-    if (sort === 'new') list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    else if (sort === 'top') list.sort((a, b) => b.karma - a.karma);
-    else list.sort((a, b) => Number(b.isPinned) - Number(a.isPinned) || b.karma - a.karma);
+    if (sort === 'new') list.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
+    else if (sort === 'top') list.sort((a, b) => b.karma - a.karma || b.id.localeCompare(a.id));
+    else list.sort((a, b) => Number(b.isPinned) - Number(a.isPinned) || b.karma - a.karma || b.id.localeCompare(a.id));
     return list;
   }
   async findThread(id: string) { return this.store.threads.find((t) => t.id === id) ?? null; }
@@ -784,6 +808,10 @@ class MemoryForumRepo implements ForumRepo {
     return this.store.replies
       .filter((r) => r.threadId === threadId && !r.isDeleted)
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+  /** Test pomoćnik: dohvati temu kao `findThread` (isti ugovor kao Supabase adapter). */
+  async getThread(id: string) {
+    return this.findThread(id);
   }
   async createReply(reply: ReplyRecord) {
     this.store.replies.push(reply);
@@ -1188,6 +1216,16 @@ class SupabaseUserRepo implements UserRepo {
       this.db.from('users').select(columns).eq('id', id).maybeSingle(),
     );
     return data ? this.hydrate(data) : null;
+  }
+  /** B-11 — jedan upit za više autora; UUID-ovi koji nisu UUID se preskaču. */
+  async findByIds(ids: string[]) {
+    const uuids = [...new Set(ids)].filter((id) => asUuid(id));
+    if (!uuids.length) return [];
+    const { data, error } = await this.runSelect((columns) =>
+      this.db.from('users').select(columns).in('id', uuids),
+    );
+    if (error) throw error;
+    return (data ?? []).map((row: any) => this.hydrate(row));
   }
   async findByUsername(username: string) {
     const value = username.trim();
@@ -1933,6 +1971,75 @@ class SupabaseForumRepo implements ForumRepo {
     const { count, error } = await q;
     if (error) throw error;
     return count ?? 0;
+  }
+
+  /**
+   * B-10 — offset keyset kursora u SQL-u.
+   * PostgREST ne podržava `LIMIT 1 OFFSET n`, ali COUNT redova koji su
+   * „pre“ kursora po ISTOM sortu (sa `id` kao tie-breaker-om u JS-u i ovde
+   * namerno zanemarenim — isti red se nikad ne pojavljuje dvaput) daje pravi
+   * offset bez učitavanja prvih 200 redova.
+   * Vraća `null` ako kursor ne postoji (tada je i strana prazna).
+   */
+  async threadCursorOffset(
+    filter: { subforum?: string; sort?: 'hot' | 'new' | 'top'; search?: string },
+    cursorId: string,
+  ): Promise<number | null> {
+    const sort = filter.sort ?? 'hot';
+    const { data: cursorRow, error: cursorError } = await this.db
+      .from('forum_threads')
+      .select('id, created_at, karma, is_pinned')
+      .eq('id', cursorId)
+      .eq('is_deleted', false)
+      .maybeSingle();
+    if (cursorError) throw cursorError;
+    if (!cursorRow) return null;
+
+    const baseQuery = () => {
+      let q = this.db.from('forum_threads').select('id', { count: 'exact', head: true }).eq('is_deleted', false);
+      if (filter.search) {
+        const term = escapePostgrestValue(filter.search.replace(/[%_\\]/g, '\\$&'));
+        q = q.or(`title.ilike.*${term}*,content.ilike.*${term}*`);
+      }
+      return q;
+    };
+
+    let categoryId: string | null = null;
+    if (filter.subforum) {
+      categoryId = await this.resolveCategoryId(filter.subforum);
+      if (!categoryId) return null;
+    }
+    const scoped = () => (categoryId ? baseQuery().eq('category_id', categoryId) : baseQuery());
+
+    if (sort === 'hot') {
+      // PINOVANE uvek prve (i međusobno po karmi), pa ostale po karmi.
+      const k = cursorRow.karma ?? 0;
+      if (cursorRow.is_pinned === true) {
+        const [before, rest] = await Promise.all([
+          scoped().eq('is_pinned', true).gt('karma', k),
+          scoped().eq('is_pinned', true).eq('karma', k).neq('id', cursorId),
+        ]);
+        if (before.error) throw before.error;
+        if (rest.error) throw rest.error;
+        // Pinovane pre kursora (+1 sam kursor) — nepinovane su uvek POSLE svih pinovanih.
+        return (before.count ?? 0) + (rest.count ?? 0) + 1;
+      }
+      const [pinnedCount, before] = await Promise.all([
+        scoped().eq('is_pinned', true),
+        scoped().eq('is_pinned', false).gt('karma', k),
+      ]);
+      if (pinnedCount.error) throw pinnedCount.error;
+      if (before.error) throw before.error;
+      return (pinnedCount.count ?? 0) + (before.count ?? 0) + 1;
+    }
+
+    const column = sort === 'new' ? 'created_at' : 'karma';
+    const value = sort === 'new' ? cursorRow.created_at : cursorRow.karma ?? 0;
+    const { count, error } = await scoped().gt(column, value);
+    if (error) throw error;
+    // `new` sort po created_at (jedinstven po redu), `top` po karmi — offset je
+    // broj redova striktno ispred kursora, plus 1 za sam kursor.
+    return (count ?? 0) + 1;
   }
 
   /** F-18 — SUM pregleda u bazi (RPC `sum_thread_views`). */
@@ -3767,7 +3874,11 @@ const isRealSupabaseConfigured = Boolean(
 
 let dataLayer: DataLayer;
 
-if (isRealSupabaseConfigured) {
+// Testovi uvijek rade na memoriji: `server/.env` (development) može imati prave
+// Supabase ključe dode, a testovi ne smeju da pišu u produkcionu bazu.
+const forceMemory = process.env.NODE_ENV === 'test' && process.env.ALLOW_SUPABASE_IN_TESTS !== '1';
+
+if (isRealSupabaseConfigured && !forceMemory) {
   const db = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!, {
     auth: { persistSession: false },
   });

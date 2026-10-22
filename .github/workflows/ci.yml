@@ -31,8 +31,22 @@ jobs:
       - name: Backend typecheck
         run: npx --prefix server tsc --noEmit -p server/tsconfig.json
 
-      - name: Unit tests
+      - name: Unit + integration tests
         run: npm run test
 
-      - name: Build
+      # Analiza §7.7 — source mape u Sentry. Bez `SENTRY_AUTH_TOKEN` (forks/PR) koraci
+      # se preskaču, a build je isti kao lokalno (`sourcemap: false`).
+      - name: Install sentry-cli
+        if: ${{ env.SENTRY_AUTH_TOKEN != '' }}
+        run: curl -sL https://sentry.io/get-cli/ | SENTRY_CLI_VERSION=2.39.1 bash
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+
+      - name: Build (with source map upload)
         run: npm run build
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+          SENTRY_RELEASE: ${{ github.sha }}
+          SENTRY_CLI_PATH: sentry-cli

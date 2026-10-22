@@ -181,3 +181,79 @@ export function isOwnStorageUrl(url: string): boolean {
   if (!url || !process.env.SUPABASE_URL) return false;
   return url.startsWith(`${process.env.SUPABASE_URL.replace(/\/$/, '')}/storage/v1/object/public/${STORAGE_BUCKET}/`);
 }
+
+/** Jedan objekat u galeriji (medijska biblioteka admina). */
+export interface MediaItem {
+  path: string;
+  name: string;
+  url: string;
+  size: number | null;
+  createdAt: string | null;
+  kind: string | null;
+  ownerId: string | null;
+}
+
+/**
+ * Galerija (2.6.3) — lista fajlova bucketa za admin panel.
+ * Bucket ima prefiks po korisniku (`<userId>/…`), pa `list()` po prefiksu i
+ * flatten-uje jedan nivo ispod (umetnikove slike članka su u `<userId>/articles/`).
+ * Nikad ne vraća privatne kolone osim javnog URL-a — bucket je public.
+ */
+export async function listMedia(limit = 60): Promise<MediaItem[]> {
+  const supabase = storageClient();
+  const { data: folders, error } = await supabase.storage.from(STORAGE_BUCKET).list('', { limit: 500 });
+  if (error) throw new AppError(502, 'Galerija nije mogla da se učita.');
+
+  const items: MediaItem[] = [];
+  const toItem = (folder: string, file: any): MediaItem => {
+    const path = `${folder}/${file.name}`;
+    const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+    return {
+      path,
+      name: file.name,
+      url: data.publicUrl,
+      size: typeof file.metadata?.size === 'number' ? file.metadata.size : null,
+      createdAt: file.created_at ?? null,
+      kind: path.match(/(avatar|cover|proof|article)-/)?.[1] ?? null,
+      ownerId: folder || null,
+    };
+  };
+
+  for (const folder of folders ?? []) {
+    // `id === null` označava prefiks (folder), ne fajl.
+    if (folder.id === null || folder.metadata === null) {
+      const { data: files } = await supabase.storage.from(STORAGE_BUCKET).list(folder.name, { limit });
+      for (const file of files ?? []) {
+        if (file.id === null) continue;
+        if (file.name.startsWith('articles')) {
+          // `<userId>/articles/<name>` — slike iz Tiptap editora
+          const { data: nested } = await supabase.storage.from(STORAGE_BUCKET).list(`${folder.name}/articles`, { limit });
+          for (const inner of nested ?? []) items.push(toItem(`${folder.name}/articles`, inner));
+          continue;
+        }
+        items.push(toItem(folder.name, file));
+      }
+      continue;
+    }
+    items.push(toItem('', folder));
+  }
+
+  return items
+    .filter((item) => /\.webp$/i.test(item.name))
+    .sort((a, b) => String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')))
+    .slice(0, limit);
+}
+
+/**
+ * Brisanje objekta iz galerije. Dozvoljeni su samo putanje UNUTAR bucketa
+ * (`<userId>/…`); `..`, apsolutne putanje i URL-ovi se odbijaju.
+ */
+export async function deleteMedia(path: string): Promise<void> {
+  const clean = (path ?? '').trim();
+  if (!clean || clean.includes('..') || clean.startsWith('/') || clean.includes('://')) {
+    throw new AppError(400, 'Neispravna putanja fajla.');
+  }
+  const supabase = storageClient();
+  const { error } = await supabase.storage.from(STORAGE_BUCKET).remove([clean]);
+  if (error) throw new AppError(502, 'Fajl nije mogao da se obriše.');
+}

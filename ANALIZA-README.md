@@ -6,7 +6,7 @@
 > TS provera backenda, E2E prisustva), ne na osnovu starijeg `README.md`-a.
 
 **Datum analize:** 2026-10-22
-**Verzija koda:** 2.6.1 (jedan SQL fajl: `server/schema-ALL.sql`)
+**Verzija koda:** 2.6.3 (jedan SQL fajl: `server/schema-ALL.sql`)
 
 ---
 
@@ -16,7 +16,7 @@
 |---|---|
 | Stack | React 19 + TS + Vite 6 + Tailwind v4 (front), Express 4 + TS (back), Supabase Postgres (data) |
 | Obim | 77 fajla frontenda, 60+ fajlova backenda, 11 SQL migracija, 18 test fajlova |
-| Testovi | **146 / 146 prolazi** (`vitest`, in-memory režim) |
+| Testovi | **220 / 220 prolazi** (`vitest`, 27 fajlova — uključujući `supertest` integracione testove) |
 | Tipovi | `tsc --noEmit` (front) ✅, `tsc --noEmit` (back) ✅ |
 | Build | ✅ prolazi, uz upozorenje na chunk od **751 kB** (`index`) i **431 kB** (Tiptap editor) |
 | E2E (`prisustvo`) | **13 / 13 provera prolazi** kroz pravi API (register → verify → login → heartbeat → presence → profil → leaderboard → logout) |
@@ -238,6 +238,10 @@ u procesu — restartuju server i sve sesije su... i dalje „važeće“ do ist
 nema tragove. Test `refresh_token_reuse_detected` pokriva detekciju, ali ne perzistenciju.
 **Efekat:** u demo režimu ne možeš da reprodukuješ produkcijsko ponašanje sesija.
 → *Fix:* jedan adapter (`sessions` repo) i za memoriju, sa istim testom za oba.
+✅ **Rešeno u 2.6.3.** `MemorySessionRepo` upisuje sesije u `server/.data/sessions.json`
+(atomski `tmp` + `rename`) i hydrate-uje ih pri startu — u razvoju po defaultu, u testovima i
+produkciji nikad (`memoryPersistenceEnabled()`, override `SESSION_PERSISTENCE=0|1`).
+Testovi: `regressions-p0.test.ts` (B-01 blok).
 
 **B-02. `DEV_EXPOSE_TOKENS=1` je jedini krut način da se dobije token u lokalnom razvoju.**
 `devTokensExposed()` zahteva **i** `NODE_ENV=development` **i** `DEV_EXPOSE_TOKENS=1`, i vraća token
@@ -246,6 +250,9 @@ vidi nigde (mejl ide na stvarnu adresu, koje u testu nema) → registracioni tok
 **Efekat:** teško reprodukovati verifikaciju; skripte koje računaju na `verificationToken` puknu.
 → *Fix:* u development-u uvek ispisivati link u log (bez obzira na provajdera) ili dodati
 „dev mailbox“ (`GET /api/dev/mails`).
+✅ **Rešeno u 2.6.3.** Uslov `!mailSent` uklonjen — uz `NODE_ENV=development` **i**
+`DEV_EXPOSE_TOKENS=1` token se vraća u telu bez obzira na to da li je mejl poslat; uz to se link
+(`dev_verification_link`) ispisuje u Pino log.
 
 **B-03. XP za povezivanje naloga je verifikovan u ruti, ali ne i u UI-ju.**
 `connectAccountSchema` ispravno traži `trim().min(1)`, a `hasConnectedAccountHistory` sprečava
@@ -255,12 +262,21 @@ za Steam/Twitch/YouTube/Epic/Riot handle).
 **Efekat:** korisnik dobija XP (i napredak ka `influencer` bedžu) za izmišljeni handle.
 → *Fix:* opciona verifikacija (OAuth „link“ kao za Discord/Google) ili bar jasna oznaka
 „nije verifikovano“ i XP tek posle verifikacije.
+✅ **Rešeno u 2.6.3.** `server/lib/accountVerification.ts`: Steam se proverava preko
+`ResolveVanityURL` (SteamID64 se prihvata lokalno, `success: 42` = nema naloga), a XP (+25)
+se dodeljuje **samo verifikovanom** nalogu. Neverifikovani handle se čuva uz `verifiedPlatforms`
+polje i poruku „sačuvan, ali bez XP-a“; Discord se verifikuje OAuth link-om, a Twitch/YouTube/
+Epic/Riot ostaju eksplicitno neverifikovani dok ne postoji javna provera.
+Testovi: `regressions-p0.test.ts` (B-03 blok) sa stub-ovanim `fetch`-om.
 
 **B-04. CSRF cookie ima `Max-Age` 7 dana, a access token 15 min — posle „tihe“ odjave cookie ostaje.**
 `nx_csrf` se ne briše u `resolveSessionLost` klijenta; sledeći mutirajući zahtev nosi stari CSRF
 token sa novom (nevalidnom) sesijom. Nije ranjivost (server odbija), ali proizvodi 403 umesto 401
 na prvom zahtevu posle isteka sesije → UI prikazuje pogrešnu poruku.
 → *Fix:* brisati `nx_csrf` u `onSessionLost` i mapirati 403 na osvežavanje sesije.
+✅ **Rešeno u 2.6.3.** `clearCsrfCookie()`/`dropLocalSession()` u `src/lib/api.ts`: 401 briše
+CSRF cookie pre resetovanja store-a, a `403 CSRF_FAILED` pokušava `refresh` jednom (pa ponavlja
+zahtev) umesto da korisnik vidi pogrešnu poruku.
 
 **B-05. Turnstile se šalje i na `2fa/login`, ali bez ponovnog rešenja widgeta posle neuspeha.**
 `AuthPage.submitMfa` postavlja `setCaptchaToken(null)` posle greške, ali widget se ne remountuje
@@ -268,6 +284,8 @@ vector u MFA formi (za razliku od glavne forme, gde je remount eksplicitan).
 **Efekat:** drugi pokušaj 2FA koda pada sa „Sačekajte da se završi provera…“ i korisnik ostaje
 blokiran za taj tiket.
 → *Fix:* isti `captchaKey` remount mehanizam u MFA koraku.
+✅ **Rešeno u 2.6.3.** `CaptchaBox` prima `resetKey`; `AuthPage` koristi jedan `resetCaptcha()`
+(briše token i menja ključ) za greške, prelazak na 2FA korak, otkazivanje i promenu režima.
 
 ### P1 — funkcionalno ponašanje
 
@@ -278,12 +296,17 @@ ne koristi u `AuthPage`.
 **Efekat:** korisnik klikne admin link, prijavi se i završi na početnoj.
 → *Fix:* `const next = searchParams.get('next') || location.state?.from;` + validacija da je
 interna putanja, pa `navigate(next, { replace: true })`.
+✅ **Rešeno u 2.6.3.** `safeNextPath()` (`src/lib/navigation.ts`) prihvata samo interne putanje
+(odbija `//evil.com`, `/\`, `javascript:`, auth rute) — koristi se posle prijave, registracije i 2FA.
+Testovi: `regressions-p0.test.ts` (B-06 blok).
 
 **B-07. `isStaff` se računa pre nego što je sesija učitana → lažni redirect sa `/admin`.**
 `currentUser` je `null` dok `initSession()` ne završi (`Layout` ga zove u `useEffect`). Ako
 osvežiš `/admin`, `AdminDashboard` renderuje `Navigate to="/login?next=/admin"` **pre** nego što
 `/auth/me` vrati admina. U kombinaciji sa B-06 admin posle „osveži“ izgubi admin panel.
 → *Fix:* koristiti `isLoading` iz `authStore` i prikazati skeleton dok traje `initSession`.
+✅ **Rešeno u 2.6.3.** Guard u `AdminDashboard` čeka `authStore.isLoading` i prikazuje
+`AdminGuardSkeleton`; tek posle toga odlučuje o redirectu (tada je `?next=/admin` i ispravan).
 
 **B-08. `MobileTabBar` nema FAB za „Nova tema“, a nema ni `onNewTopic`.**
 `Layout` renderuje `<MobileTabBar />` bez propa; `ForumPage` ima svoj FAB. Komentar u kodu tvrdi
@@ -301,12 +324,19 @@ kolačić/mrežni poziv trećoj strani za **svakog** korisnika (i za goste), št
 `cursor` u toj strani i tek onda seče. Cursor van prvih 200 → vraća praznu listu. Za veći forum
 lista postaje netačna (a ne puca).
 → *Fix:* pravi SQL cursor (`WHERE (last_activity_at, id) < (?, ?) ORDER BY … LIMIT n`).
+✅ **Rešeno u 2.6.3.** `db.forum.threadCursorOffset()` računa offset u bazi (`COUNT` redova
+„pre“ kursora po istom sortu, sa pinovanima kao posebnom grupom) — nema više prozora od 200
+redova; nepoznat kursor → prazna strana sa `hasMore: false`.
+Testovi: `forum-cursor.test.ts`.
 
 **B-11. Ticker/sekundarne liste na početnoj rade N+1 upite.**
 `HomeMagazine` i `ForumPage` po svakoj temi traže autora (`db.users.findById` u mapi u ruti —
 dobro u `forum.ts`, ali `users/:username/threads` i druge rute rade po redu). Sa 50–200 redova to
 je 50–200 dodatnih upita po učitavanju.
 → *Fix:* batch join (`users.id IN (…)`) kao što je već urađeno za `authorIds` u `forum.ts`.
+✅ **Delimično rešeno u 2.6.3.** Dodat `db.users.findByIds()` (batch `IN`, memorija i Supabase)
+i `GET /api/forum/:subforum/threads` ga koristi umesto N poziva. Ostale liste
+(`users/:username/threads` i sl.) i dalje rade N+1 — isti poziv ih rešava.
 
 **B-12. Ankete u „polovičnom“ stanju između režima.**
 U Supabase režimu greška = 503 (ispravno), ali `forum_polls` se **ne kreira** automatski; ako
@@ -349,6 +379,8 @@ SPA i dalje servira prazan `index.html` crawleru koji ne izvršava JS — meta t
 posle hidratacije. README to priznaje, ali ostaje glavni SEO dug.
 → *Fix:* SSG/prerender (`vite-plugin-ssg` ili edge middleware) za `/`, `/article/:slug`,
 `/thread/:id`.
+⏳ **Otvoreno (nije u ovom krugu).** `robots.txt` i `sitemap.xml` postoje, ali crawler bez JS-a
+i dalje dobija prazan `index.html` — potreban SSG/prerender korak u build-u.
 
 ### P3 — DX / konzistentnost
 
@@ -371,6 +403,9 @@ Ukupno 2 s za 18 fajlova je dobro, ali bcrypt u testovima koristi produkcijski c
 
 **B-23. Nema git istorije.**
 `master` nema nijedan commit. Svaki „fix“ je nepovratan — nema `blame`, nema rollback-a.
+✅ **Rešeno u 2.6.3.** `git init` u korenu projekta (repo je ranije bio vezan za ceo
+`C:\Users\<ime>`, pa nijedan projekat nije imao svoju istoriju), prvi commit i `.gitignore`
+koji pokriva `.env`/`.env.*` (+ backup-ove), `server/.data/`, `dist/`, `*.log`, coverage.
 
 **B-24. Ambijentalna „amber“ paleta u adminu i delovima UI-ja.**
 `src/index.css` definiše `--color-accent-amber: var(--color-warning)` (#f59e0b), a admin panel ga
@@ -398,28 +433,40 @@ Za i18n nije spremno (nema `i18n` sloja, svi stringovi hardkodovani u komponenta
 | **Pretraga** | ✅ **Objedinjena pretraga (2.6.2)**: `/search` stranica + `GET /api/search` — članci, forum teme i deal-ovi, jedan rang. **Tri sloja**: (1) `pg_trgm` + `ILIKE` (delimične reči i greške u kucanju, `gin_trgm_ops`), (2) leksikalni — `fold_srpski()` (latinica + bez dijakritike + ćirilica→latinica) i deterministic `stem_srpski()` koren, `tsvector`/`tsquery` nad GIN indeksom, (3) „Da li ste mislili“ (`search_terms` + `search_suggest`, trigram po reči, samo kada nema pogodaka) | Nema pravog lingvističkog stemmera (`unaccent_srpski`/Snowball zavisi od verzije Postgresa — namerno izbegnut; koren je pravilo, ne rečnik); **pretraga odgovora u temama vraća temu, ne pojedinačan odgovor** (odgovori nisu indeksirani zasebno); rečnik „did you mean“ se puni ručno/cronom (`SELECT search_terms_refresh();`) |
 | **Prerender/SEO** | Meta + sitemap + robots | Nema SSG/prerender za crawler bez JS-a (B-18) |
 | **OAuth** | Discord, Google, Steam | Steam zahteva posebnu konfiguraciju i nema email (koristi se `@users.nexus.invalid`); nema vezivanja više naloga istog provajdera |
+| **Povezani gaming nalozi** | Steam verifikacija + `verifiedPlatforms` | Discord ide preko OAuth link-a; Twitch/YouTube/Epic/Riot su sačuvani ali neverifikovani (nema javne provere) — XP samo za verifikovane (B-03) |
 | **2FA** | TOTP + recovery + lockout | Nema „trusted device“, nema oporavka admina bez recovery kodova |
 | **Moderacija** | Reporti, banovi, audit | Nema sistema upozorenja (warnings), nema „restore“ za soft-deleted sadržaj kroz admin UI (samo baza) |
 | **Email notifikacije** | In-app + Realtime | Nema email digest / instant email notifikacija (Resend se koristi samo za verifikaciju, reset, newsletter) |
 | **i18n** | Srpski (latinica), `sr-Latn-RS` datumi | Nema prevoda ni ekstrahovanih stringova |
 | **Dark/Light mode** | Samo dark | Toggle ne postoji (komentari u starom README-u to priznaju) |
-| **Testovi** | 146 unit testova (vitest) | **Nema integracionih HTTP testova** (supertest) ni UI testova u repo-u; Playwright nije zavisnost |
+| **Testovi** | 220 unit + integracionih testova (vitest + supertest, 27 fajlova): auth cookie flow, CSRF 403, `requireVerified` 403, soft delete 404, per-user rate limit | Nema UI testova u repo-u (Playwright nije zavisnost) — E2E prisustvo i dalje ide kroz spoljni harness |
+| **Storage / mediji** | Upload (WebP, bez EXIF) + **medijska galerija** u adminu (lista, kopiranje URL-a, brisanje) + „Iz galerije“ u `ImageUpload` | Nema sečenja slike u UI-ju (samo automatsko smanjenje) |
 
 ---
 
 ## 7. Predlozi — šta dodati sledeće (prioritetno)
 
 1. **P0 popravke bugova:** B-01, B-02, B-04, B-05, plus B-06 i B-07 (lažni admin redirect) i B-03 (verifikacija povezanih naloga) — vidi §5.
+   ✅ *Urađeno u 2.6.3* — sve sedam; regresioni testovi u `server/tests/regressions-p0.test.ts`.
 2. **Git:** `git init`+ prvi commit (B-23) i `.gitignore` koji pokriva `.env`, `.data`, `dist`, `*.log`.
+   ✅ *Urađeno u 2.6.3* — repo je vezan za koren projekta (ne za `C:\Users\<ime>`).
 3. **Supabase Storage** za avatare i `proofUrl` deal-a (usput rešava B-09 i ograničenje `data:image`).
    ✅ *Urađeno u 2.6.2* — ostaje UI galerija i upload u Tiptap editoru.
+   ✅ *Galerija urađena u 2.6.3* (`GET/DELETE /api/admin/media/items`, tab „Mediji“, `ImageUpload allowGallery`).
 4. **Full-text pretraga** na `pg_trgm` indeksima: `gin_trgm_ops` na `forum_threads.title/content`,
    `articles.title/excerpt`; izloži `GET /api/search?q=` i jedna search stranica.
+   ✅ *Urađeno u 2.6.2* (`server/lib/search.ts`, `/search`).
 5. **Pravi cursor pagination** za forum (B-10) i batch autori (B-11).
+   ✅ *Urađeno u 2.6.3* — `threadCursorOffset()` + `db.users.findByIds()`; test `forum-cursor.test.ts`.
 6. **Integracioni testovi** (supertest + `memory` store): auth cookie flow, CSRF 403,
    `requireVerified` 403, soft delete 404, per-user rate limit.
+   ✅ *Urađeno u 2.6.3* — `server/tests/integration.test.ts`; aplikacija se montira kroz
+   `createApp()` iz `index.ts`, pa testovi koriste iste rute i limitere kao produkcija.
 7. **Sentry** — instalirati pakete i povezati `captureException` u `errorHandler`.
    ✅ *Urađeno u 2.6.2* — ostaje upload source mapa (`SENTRY_AUTH_TOKEN` u CI).
+   ✅ *Source mape urađene u 2.6.3* — `scripts/sentry-sourcemaps.mjs` (build sa `sourcemap: 'hidden'`
+   samo kad su `SENTRY_AUTH_TOKEN`/`SENTRY_ORG`/`SENTRY_PROJECT` setovani, `sentry-cli` upload i
+   brisanje `.map` fajlova iz `dist/`); CI korak u `.github/workflows/ci.yml`.
 
 ### 7.1 Šta je završeno u 2.6.2 (pregled izmena)
 
@@ -515,7 +562,7 @@ OAuth/Turnstile/TOTP konfiguracija takođe ruši start (namerno).
 ## 9. Verifikacija (ono što je zaista pokrenuto za ovu analizu)
 
 ```powershell
-npm test               # = npm --prefix server test  (vitest, 18 fajlova)
+npm test               # = npm --prefix server test  (vitest, 27 fajlova)
 npm run lint           # = tsc --noEmit (frontend)
 cd server; npx tsc --noEmit
 npm run build          # tsc -b && vite build
@@ -523,7 +570,7 @@ npm run build          # tsc -b && vite build
 
 | Provera | Rezultat |
 |---|---|
-| Vitest | **18 fajlova / 146 testova ✅** (uklj. `security254` 15, `deals` 31, `repos` 12, `env` 11) |
+| Vitest | **27 fajlova / 220 testova ✅** (uklj. `integration` 12 sa `supertest`, `regressions-p0` 15, `forum-cursor` 6, `deals` 31, `repos` 12, `env` 11) |
 | `tsc --noEmit` frontend | ✅ 0 grešaka |
 | `tsc --noEmit` backend | ✅ 0 grešaka |
 | `vite build` | ✅ prolazi; upozorenje: `index` 751 kB / `RichTextEditor` 431 kB |

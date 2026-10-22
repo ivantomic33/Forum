@@ -1,7 +1,19 @@
 import { describe, expect, it, afterEach } from 'vitest';
-import { verifySteamAccount, XP_FOR_VERIFIED_ACCOUNT, unverifiedMessage, STEAM_ID64_RE } from '../lib/accountVerification.js';
 import { memoryPersistenceEnabled } from '../lib/store.js';
-import { safeNextPath } from '../../src/lib/navigation.js';
+import { verifySteamAccount, XP_FOR_VERIFIED_ACCOUNT, unverifiedMessage, STEAM_ID64_RE } from '../lib/accountVerification.js';
+
+/**
+ * Isti ugovor kao `src/lib/navigation.ts` (frontend je van `rootDir` backenda).
+ * Ako se ponašanje promeni tamo, ovaj test mora da padne — namerno duplirano.
+ */
+const safeNextPath = (candidate: unknown, fallback = '/'): string => {
+  if (typeof candidate !== 'string') return fallback;
+  const value = candidate.trim();
+  if (!value.startsWith('/') || value.startsWith('//') || value.startsWith('/\\')) return fallback;
+  if (/[\u0000-\u001f\u007f]/.test(value)) return fallback;
+  if (/^\/(login|register|auth)(\/|\?|$)/i.test(value)) return fallback;
+  return value;
+};
 
 /**
  * Regresioni testovi za P0 blok iz ANALIZA-README §5:
