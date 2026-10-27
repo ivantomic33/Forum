@@ -22,8 +22,17 @@ jobs:
       - name: Install backend dependencies
         run: npm ci --prefix server
 
+      # N-11 — jedan lockfile po instalaciji; ovde se pada rano ako `server/package-lock.json`
+      # nije commit-ovan ili je manifest menjan bez instalacije.
+      - name: Install consistency (lockfiles, node_modules)
+        run: npm run check:install
+
       - name: Secret scan
         run: npm run check:secrets
+
+      # Analiza §3 — mojibake (UTF-8 pročitan kao cp1252) se ne vraća u kod.
+      - name: Mojibake check
+        run: npm run check:mojibake
 
       - name: Lint (TypeScript)
         run: npm run lint
@@ -33,6 +42,28 @@ jobs:
 
       - name: Unit + integration tests
         run: npm run test
+      # Procena rizika §7.1 #13 — backup procedura se PROVERAVA, ne dokumentuje:
+      # pravi se `--data-only` arhiva u temp-u i odmah verifikuje (SHA-256 corpus).
+      - name: Backup round-trip
+        run: npm run backup:data --out "$RUNNER_TEMP/backup" && npm run backup:verify -- "$(ls -d "$RUNNER_TEMP"/backup/*/ | head -1)"
+
+      # N-05 — E2E (Playwright). `e2e/support/server.mjs` podiže API u in-memory
+      # režimu (demo seed) i Vite; nema Supabase-a ni spoljnog harness-a.
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E smoke (gost, login, nova tema, glas, deals, admin guard, rang-lista, 404, mobilni)
+        run: npm run e2e
+        env:
+          CI: '1'
+
+      - name: Upload Playwright report (failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
 
       # Analiza §7.7 — source mape u Sentry. Bez `SENTRY_AUTH_TOKEN` (forks/PR) koraci
       # se preskaču, a build je isti kao lokalno (`sourcemap: false`).

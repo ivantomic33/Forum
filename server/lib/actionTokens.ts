@@ -1,5 +1,5 @@
 import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { isSharedFallbackError, sharedClient, warnSharedOnce } from './sharedStore.js';
 import { logger } from './logger.js';
 
 /**
@@ -12,6 +12,10 @@ import { logger } from './logger.js';
  *   - sa Supabase konfiguracijom → tabela `auth_tokens` (preživljava restart,
  *     radi na više instanci; `consume_auth_token` RPC troši token atomično),
  *   - bez baze → in-memory fallback (samo za razvoj/demo).
+ *
+ * N-09: klijent je zajednički (`sharedStore`) i testovi pod `ALLOW_SUPABASE_IN_TESTS`
+ * dobijaju ISTU bazu kao data layer — ranije su tokeni ostajali u memoriji dok
+ * su korisnici bili u bazi, pa verifikacija nije radila preko instanci.
  */
 
 export type TokenKind = 'verify_email' | 'reset_password';
@@ -37,22 +41,13 @@ const tokensByHash = new Map<string, StoredToken>();
 
 /* ------------------------------ Supabase -------------------------------- */
 
-let client: SupabaseClient | null = null;
-let clientChecked = false;
+function getClient(): ReturnType<typeof sharedClient> {
+  return sharedClient();
+}
 
-function getClient(): SupabaseClient | null {
-  if (clientChecked) return client;
-  clientChecked = true;
-
-  // Isti uslov kao u data layer-u: testovi NIKAD ne pišu u pravu bazu.
-  if (process.env.NODE_ENV === 'test' && process.env.ALLOW_SUPABASE_IN_TESTS !== '1') return null;
-
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_KEY;
-  if (!url || !key || url.includes('your-project') || key.length < 20) return null;
-
-  client = createClient(url, key, { auth: { persistSession: false } });
-  return client;
+/** Upozori jednom — token ostaje u memoriji procesa (restart ga briše). */
+function warnMemoryFallback(err?: unknown) {
+  warnSharedOnce('action_tokens', err);
 }
 
 /** UTC ISO string — poređenje sa TIMESTAMPTZ u bazi. */
@@ -81,7 +76,11 @@ export async function createActionToken(
     });
     if (error) {
       logger.error({ err: error, userId, kind }, 'auth_token_persist_failed');
-      throw new Error('Token nije mogao biti sačuvan.');
+      // Mrežna/migracijska greška → token i dalje važi u ovom procesu (jedna
+      // instanca; restart ga poništava). Kršenje ograničenja je pravi bug.
+      tokensByHash.set(hash, { hash, userId, kind, expiresAt: expiresAt.getTime(), used: false });
+      if (isSharedFallbackError(error)) warnMemoryFallback(error);
+      else throw new Error('Token nije mogao biti sačuvan.');
     }
   } else {
     tokensByHash.set(hash, { hash, userId, kind, expiresAt: expiresAt.getTime(), used: false });
@@ -103,6 +102,7 @@ export async function consumeActionToken(token: string, kind: TokenKind): Promis
     }
     // RPC nedostaje (migracija 2.4.4 nije puštena) — fallback na dve operacije.
     if (error) {
+      if (isSharedFallbackError(error)) warnMemoryFallback(error);
       const { data: row } = await db
         .from('auth_tokens')
         .select('id, user_id, expires_at, used_at')

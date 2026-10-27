@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="sr-Latn">
+
+<head>
+  <meta charset="utf-8">
+  <title>NEXUS — Analiza web aplikacije i predlozi za dalji razvoj</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 0;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: "Segoe UI", Arial, sans-serif;
+      color: #1c2030;
+      font-size: 10.5pt;
+      line-height: 1.55;
+      margin: 0;
+    }
+
+    header.cover {
+      background: linear-gradient(135deg, #0a0c13 0%, #181d2e 60%, #2a1f4d 100%);
+      color: #fff;
+      padding: 70px 48px 56px;
+      page-break-after: always;
+    }
+
+    header.cover h1 {
+      font-size: 30pt;
+      margin: 0 0 8px;
+      letter-spacing: .5px;
+    }
+
+    header.cover .accent {
+      color: #a78bfa;
+    }
+
+    header.cover p {
+      color: #c8cde0;
+      font-size: 12pt;
+      max-width: 620px;
+    }
+
+    .meta {
+      margin-top: 36px;
+      font-size: 9.5pt;
+      color: #9aa2c0;
+    }
+
+    main {
+      padding: 24px 48px 40px;
+    }
+
+    h2 {
+      color: #5b3fd4;
+      border-bottom: 2px solid #e4defc;
+      padding-bottom: 5px;
+      font-size: 16pt;
+      margin: 28px 0 10px;
+      page-break-after: avoid;
+    }
+
+    h3 {
+      color: #1c2030;
+      font-size: 12pt;
+      margin: 18px 0 6px;
+      page-break-after: avoid;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 8px 0 14px;
+      font-size: 9.5pt;
+      page-break-inside: avoid;
+    }
+
+    th {
+      background: #f1eefc;
+      text-align: left;
+    }
+
+    th,
+    td {
+      border: 1px solid #ddd8f0;
+      padding: 6px 9px;
+      vertical-align: top;
+    }
+
+    .ok {
+      color: #0b7a4b;
+      font-weight: 600;
+    }
+
+    .part {
+      color: #b45309;
+      font-weight: 600;
+    }
+
+    .missing {
+      color: #b91c1c;
+      font-weight: 600;
+    }
+
+    .prio {
+      display: inline-block;
+      padding: 1px 8px;
+      border-radius: 10px;
+      font-size: 8.5pt;
+      font-weight: 700;
+    }
+
+    .p1 {
+      background: #fee2e2;
+      color: #b91c1c;
+    }
+
+    .p2 {
+      background: #fef3c7;
+      color: #b45309;
+    }
+
+    .p3 {
+      background: #dcfce7;
+      color: #15803d;
+    }
+
+    ul {
+      margin: 6px 0 10px;
+      padding-left: 20px;
+    }
+
+    li {
+      margin: 3px 0;
+    }
+
+    .note {
+      background: #f6f4ff;
+      border-left: 3px solid #8b5cf6;
+      padding: 8px 12px;
+      border-radius: 4px;
+      margin: 10px 0;
+      font-size: 9.5pt;
+    }
+
+    code {
+      background: #f1eefc;
+      padding: 1px 4px;
+      border-radius: 3px;
+      font-family: Consolas, monospace;
+      font-size: 9pt;
+    }
+
+    .toc li {
+      margin: 2px 0;
+    }
+  </style>
+</head>
+
+<body>
+
+  <header class="cover">
+    <h1>NEXUS <span class="accent">//</span> Gaming Portal &amp; Forum</h1>
+    <p><strong>Analiza kompletne web aplikacije i predlozi šta još treba dodati</strong></p>
+    <p>Pregled trenutnog stanja sistema (frontend, backend, baza, sigurnost, QA) i lista
+      konkretnih preporuka za dalji razvoj, poredanih po prioritetu.</p>
+    <div class="meta">Datum analize: 25.10.2026. · Verzija aplikacije: ~2.7.2 ·
+      React 19 + TypeScript + Vite · Express + Supabase (PostgreSQL)</div>
+  </header>
+
+  <main>
+
+    <h2>1. Šta aplikacija VEĆ ima (stanje)</h2>
+    <table>
+      <tr>
+        <th>Oblast</th>
+        <th>Status</th>
+        <th>Detalj</th>
+      </tr>
+      <tr>
+        <td>Portal / magazin</td>
+        <td class="ok">Kompletno</td>
+        <td>Članci, hero objave, reakcije, bookmark, ticker, komentari, paginacija, OG slike generisane serverom (sharp)
+        </td>
+      </tr>
+      <tr>
+        <td>Forum</td>
+        <td class="ok">Kompletno</td>
+        <td>Subforumi, glasovi, nested odgovori, ankete, spojleri, leaderboard, prati temu (notifikacije + email), soft
+          delete</td>
+      </tr>
+      <tr>
+        <td>Nalozi i sigurnost</td>
+        <td class="ok">Kompletno</td>
+        <td>Registracija/prijava, 2FA (TOTP + recovery kodovi + zapamćeni uređaji), OAuth, refresh sesije u HttpOnly
+          cookie-ju + CSRF, email verifikacija, reset lozinke, banovi, Turnstile captcha</td>
+      </tr>
+      <tr>
+        <td>Profil</td>
+        <td class="ok">Kompletno</td>
+        <td>XP/level, bedževi, kvestovi, dnevni loop (streak), povezani gaming nalozi, blokade, GDPR export/brisanje,
+          share kartica 1200×630</td>
+      </tr>
+      <tr>
+        <td>Deals / Popusti</td>
+        <td class="ok">Kompletno</td>
+        <td>Ponude, glasovi, „kupio sam“, wishlist + price alert mejl, IGDB katalog igara, dokazi (upload u Supabase
+          Storage)</td>
+      </tr>
+      <tr>
+        <td>Zajednica</td>
+        <td class="ok">Kompletno</td>
+        <td>Kolekcije igara sa glasanjem, kalkulator build-a PC konfiguracija (deljivi), moderacija (prijave,
+          upozorenja, restore tema)</td>
+      </tr>
+      <tr>
+        <td>Realtime / PWA</td>
+        <td class="ok">Kompletno</td>
+        <td>„Online sada“ (heartbeat + Supabase Realtime), notifikacije realtime + polling, PWA manifest, service
+          worker, offline stranica, web push (struktura)</td>
+      </tr>
+      <tr>
+        <td>Pretraga</td>
+        <td class="ok">Kompletno</td>
+        <td>Full-text (pg_trgm + tsvector), objedinjena pretraga članci/teme/odgovori/deal-ovi, ⌘K paleta</td>
+      </tr>
+      <tr>
+        <td>SEO</td>
+        <td class="ok">Kompletno</td>
+        <td>Per-route meta + JSON-LD, prerender za crawlere, dinamički sitemap.xml, robots.txt</td>
+      </tr>
+      <tr>
+        <td>Dizajn</td>
+        <td class="ok">Kompletno</td>
+        <td>Dark/Light/System tema, print stilovi, WCAG (focus, reduced-motion), UI kit komponente, fluid sizing</td>
+      </tr>
+      <tr>
+        <td>Admin</td>
+        <td class="ok">Kompletno</td>
+        <td>Dashboard, članci, komentari, prijave, audit log, newsletter kampanje + zakazivanje, nedeljni digest,
+          broadcast</td>
+      </tr>
+      <tr>
+        <td>Kvalitet</td>
+        <td class="ok">Kompletno</td>
+        <td>285 testova prolazi, 36 test fajlova, tsc čist, Playwright E2E suite (auth, compose, vote, deals,
+          mobile...), CI workflow, backup/restore skripta</td>
+      </tr>
+    </table>
+    <div class="note">Provera <code>npm run check:features</code>: <strong>sve 14 stavki (F-1…F-14) imaju i šemu i
+        kod</strong> — osnovna funkcionalnost je zaokružena.</div>
+
+    <h2>2. Šta NEDOSTAJE — predlozi po prioritetu</h2>
+
+    <h3>Prioritet 1 (visok uticaj, očekivano za produkciju)</h3>
+    <table>
+      <tr>
+        <th style="width:26%">Predlog</th>
+        <th style="width:10%">Prioritet</th>
+        <th>Obrazloženje</th>
+      </tr>
+      <tr>
+        <td><strong>Aktivacija web push-a</strong> (VAPID ključevi + <code>web-push</code> paket)</td>
+        <td><span class="prio p1">P1</span></td>
+        <td>Frontend i šema (<code>push_subscriptions</code>) već postoje, ali server nema instaliran
+          <code>web-push</code> paket niti <code>VAPID_*</code> promenljive — push trenutno ne može da pošalje ništa.
+          Najjeftinija „nova“ funkcionalnost: samo env + <code>npm i --prefix server web-push</code>.</td>
+      </tr>
+      <tr>
+        <td><strong>Periodična provera cena deal-ova</strong></td>
+        <td><span class="prio p1">P1</span></td>
+        <td>Price alert se okida samo pri kreiranju/izmeni deal-a. Server već ima tajmer infrastrukturu (digest,
+          kampanje, presence sweeper) — dodati dnevni/tični posao koji povlači cene sa prodavnica (Steam API) i zove
+          postojeći <code>notifyPriceWatchers()</code>.</td>
+      </tr>
+      <tr>
+        <td><strong>RSS / Atom feed</strong> (<code>/rss.xml</code>)</td>
+        <td><span class="prio p1">P1</span></td>
+        <td>Postoji sitemap.xml i OG slike, ali nema RSS feeda za članke i deal-ove. Standard za gaming portale, jeftino
+          (server već sastavlja XML za sitemap iz istih podataka).</td>
+      </tr>
+      <tr>
+        <td><strong>Privatne poruke (DM) / inbox</strong></td>
+        <td><span class="prio p1">P1</span></td>
+        <td>Jedina standardna društvena funkcionalnost koja potpuno nedostaje: korisnici se mogu blokirati, pratiti
+          teme, ali ne mogu da razmenjuju poruke. Realtime sloj (Supabase Broadcast) već postoji i može se iskoristiti.
+        </td>
+      </tr>
+      <tr>
+        <td><strong>Praćenje korisnika (follow)</strong></td>
+        <td><span class="prio p1">P1</span></td>
+        <td>Postoji „prati temu“, ali ne „prati korisnika“ (feed novih tema od autora koje pratiš + notifikacija).
+          Komplementarno DM-ovima i leaderboardu.</td>
+      </tr>
+    </table>
+
+    <h3>Prioritet 2 (iskustvo i sadržaj)</h3>
+    <table>
+      <tr>
+        <th style="width:26%">Predlog</th>
+        <th style="width:10%">Prioritet</th>
+        <th>Obrazloženje</th>
+      </tr>
+      <tr>
+        <td><strong>Editovanje teme/odgovora u UI-ju</strong></td>
+        <td><span class="prio p2">P2</span></td>
+        <td>Backend rute <code>PUT /api/forum/threads/:id</code> i <code>/replies/:id</code> postoje, kao i
+          <code>api.updateThread/updateReply</code> klijent metode — ali ih <strong>nijedna komponenta ne
+            koristi</strong>. Korisnik ne može da izmeni svoj post iz interfejsa. Samo povesti UI na postojeći API.</td>
+      </tr>
+      <tr>
+        <td><strong>Respone draft tema / autosave editora</strong></td>
+        <td><span class="prio p2">P2</span></td>
+        <td>Članci imaju draft status (admin), ali običan korisnik gubi dugi tekst teme ako zatvori tab. Autosave u
+          localStorage (već se koristi za bookmarks) ili draft tabela.</td>
+      </tr>
+      <tr>
+        <td><strong>Lightbox za slike u člancima/temama</strong></td>
+        <td><span class="prio p2">P2</span></td>
+        <td>Postoji CropModal za upload, ali galerija (<code>MediaGallery</code>) nema zoom/lightbox prikaz.</td>
+      </tr>
+      <tr>
+        <td><strong>Kalendar gaming izdanja / događaja</strong></td>
+        <td><span class="prio p2">P2</span></td>
+        <td>IGDB katalog već ima <code>releaseDate</code> — „Najave koje dolaze“ i najava esport događaja su prirodno
+          proširenje Games stranice.</td>
+      </tr>
+      <tr>
+        <td><strong>Wiki / baza znanja po igri (guides)</strong></td>
+        <td><span class="prio p2">P2</span></td>
+        <td>Game Page postoji; dodati sekciju „Vodiči“ vezanu za igru (community sadržaj sa glasovima), što povećava SEO
+          dubinu.</td>
+      </tr>
+      <tr>
+        <td><strong>i18n proširenje na ceo sajt</strong></td>
+        <td><span class="prio p2">P2</span></td>
+        <td>i18n skela (sr/en) postoji i testira se, ali <code>useT()</code> koriste samo 4 komponente. Većina UI-a je
+          tvrdo na srpskom.</td>
+      </tr>
+      <tr>
+        <td><strong>Thread preview / Istraži link preview</strong></td>
+        <td><span class="prio p2">P2</span></td>
+        <td>Rich editor podržava slike, ali nema ugradbenog YouTube/Spotify/Twitch embeda u temama i člancima (
+          Whitelist-based oEmbed).</td>
+      </tr>
+    </table>
+
+    <h3>Prioritet 3 (rast, administracija, kvalitet)</h3>
+    <table>
+      <tr>
+        <th style="width:26%">Predlog</th>
+        <th style="width:10%">Prioritet</th>
+        <th>Obrazloženje</th>
+      </tr>
+      <tr>
+        <td><strong>Analitika za autore/admina</strong></td>
+        <td><span class="prio p3">P3</span></td>
+        <td><code>views</code> se broje, ali admin dashboard nema grafike (pregledi po danu, top članci, retencija).
+          Lako preko postojećeg <code>/api/admin/stats</code> + Chart.js.</td>
+      </tr>
+      <tr>
+        <td><strong>Scheduled objavljivanje članaka</strong></td>
+        <td><span class="prio p3">P3</span></td>
+        <td>Newsletter kampanje i digest već imaju zakazivanje (cron-like timer) — isti šablon za
+          <code>publishedAt</code> članaka.</td>
+      </tr>
+      <tr>
+        <td><strong>Nagrada „najbolji odgovor“</strong></td>
+        <td><span class="prio p3">P3</span></td>
+        <td> Glasovi postoje, ali autor teme ne može da označi rešenje (accepted answer) — velika vrednost za
+          hardware/LFG pomoć.</td>
+      </tr>
+      <tr>
+        <td><strong>Automatizovani backup u CI</strong></td>
+        <td><span class="prio p3">P3</span></td>
+        <td><code>scripts/backup.mjs --verify</code> postoji ali nije u CI pipeline-u
+          (<code>.github/workflows/ci.yml</code> pokreće lint/test/build).</td>
+      </tr>
+      <tr>
+        <td><strong>E2E testovi za nove module</strong></td>
+        <td><span class="prio p3">P3</span></td>
+        <td>E2E suite pokriva auth, compose, vote, deals, leaderboard, mobile — fale kolekcije, build planner, pretraga,
+          admin panel.</td>
+      </tr>
+      <tr>
+        <td><strong>Storybook / vizuelni QA dizajn sistema</strong></td>
+        <td><span class="prio p3">P3</span></td>
+        <td>UI kit je izdvojen, snimci se prave ručno (<code>scripts/design</code>). Storybook bi ujednačio komponente.
+        </td>
+      </tr>
+      <tr>
+        <td><strong>Push za digest i price alert (ne samo inbox notifikacije)</strong></td>
+        <td><span class="prio p3">P3</span></td>
+        <td>Kad se P1 push aktivira, povezati i digest/price alert na push kanal.</td>
+      </tr>
+    </table>
+
+    <h2>3. Tehnički dugovi (ne funkcionalnosti, ali vredi srediti)</h2>
+    <ul>
+      <li><strong>Mojibake u fajlovima</strong> — pojedini fajlovi (npr. <code>server/admin.ts</code>,
+        <code>.env.example</code>, delovi <code>SearchPage.tsx</code>) sadrže dvostruko kodirana srpska slova („Ä‡“
+        umesto „ć“). Postoji alat: <code>node scripts/qa/fix-mojibake.mjs</code> — pokrenuti i dodati u CI.</li>
+      <li><strong>README.md je arhiva</strong> — sam kaže da „nije izvor istine“ i upućuje na nepostojeći
+        <code>README.new.md</code>. Srediti ili napraviti taj fajl.</li>
+      <li><strong>In-memory fallback u produkciji</strong> — server ima dobru zaštitu (ne startuje bez Supabase-a u
+        NODE_ENV=production), ali neke stvari (site settings, ankete fallback, prisustvo) i dalje imaju memory režim;
+        proveriti da sva upozorenja idu u Sentry.</li>
+      <li><strong>Duple/konfliktne sekcije u .env.example</strong> — Supabase Storage blok se pojavljuje dva puta; IGDB
+        ključ je commit-ovan u primer fajlu (treba ukloniti realnu vrednost).</li>
+      <li><strong>localStorage bookmark fallback</strong> — gosti čuvaju bookmark lokalno; kad se prijave ne
+        sinhronizuje se automatski ka serveru.</li>
+      <li><strong>Version drift</strong> — package.json je 1.0.0, a kod je na ~2.7.2; uskladiti i uvesti CHANGELOG.</li>
+    </ul>
+
+    <h2>4. Preporučen redosled rada</h2>
+    <ol>
+      <li>Web push aktivacija (VAPID + web-push paket) — dan-dva rada.</li>
+      <li>Edit teme/odgovora u UI-ju — API postoji, samo frontend.</li>
+      <li>RSS feed — par sati.</li>
+      <li>Periodična provera cena + price alert push.</li>
+      <li>Privatne poruke + praćenje korisnika (veća celina, 1–2 nedelje).</li>
+      <li>Ostalo po kapacitetu (kalendar izdanja, wiki, analitika, i18n).</li>
+    </ol>
+
+    <div class="note">
+      <strong>Zaključak:</strong> Aplikacija je tehnološki veoma zrela — sigurnost (2FA, CSRF, HttpOnly sesije), SEO,
+      realtime, PWA, gamifikacija i testiranje su na visokom nivou, a svi planirani feature-i (F-1…F-14) su
+      implementirani. Najveće praznine su <em>društvene</em> funkcionalnosti (DM, follow), <em>operativne</em> stvari
+      (push bez VAPID-a, cena-periodična provera, RSS) i <em>mali UX rupice</em> (edit posta u UI-ju, lightbox,
+      autosave). Predlozi iz sekcije 2 su sve što razdvaja aplikaciju od „kompletne“ gaming platforme.
+    </div>
+
+  </main>
+</body>
+
+</html>

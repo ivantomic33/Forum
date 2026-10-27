@@ -7,7 +7,9 @@
  *  2. `CREATE INDEX` na izrazu koji koristi funkciju definisanu kasnije,
  *  3. neidempotentne komande (`CREATE INDEX` bez `IF NOT EXISTS`,
  *     `CREATE TABLE` bez `IF NOT EXISTS`, `CREATE TRIGGER` bez `DROP … IF EXISTS`,
- *     `ADD CONSTRAINT` bez `DROP CONSTRAINT IF EXISTS` pre sebe).
+ *     `ADD CONSTRAINT` bez `DROP CONSTRAINT IF EXISTS` pre sebe),
+ *  4. ne-SQL sadržaj: mojibake (`–, š`, `đ` sa Windows konzole) i `/** … *​/`
+ *     komentare koji bi u Postgresu bili sintaksna greška.
  *
  * Pokretanje:  node server/scripts/verify-schema.mjs
  */
@@ -94,6 +96,28 @@ for (const m of sql.matchAll(/ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?([\w.]+)\s+ADD\
 
 const bytes = Buffer.byteLength(raw, 'utf8');
 const lines = raw.split('\n').length;
+
+// 4) Mojibake i pseudo-komentari
+//
+// Na Windows-u se fajl lako sačuva kroz cp1252 („—“, „š“, „đ“) ili se
+// komentar napiše kao `/** … */` (JSDoc) — Postgres to ne poznaje, pa bi
+// takav red bio SQL greška, a ne komentar. Obe provere su nad CELIM fajlom,
+// uključujući komentare (za razliku od ostalih, koje rade nad `sql`).
+// Samo POKVARENE sekvence (UTF-8 bajtovi pročitani kao cp1252). Ispravna
+// srpska slova su očekivana i ne smeju da budu u regexu.
+const MOJIBAKE_RE = /\u00C3\u00A2\u20AC|\u00C3\u201E|\u00C3\u2018|\u00C3\u2020|\u00C3\u2021|\u00C3\u2026|\u00C3\u2030/u;
+const mojibakeLine = raw.split('\n').findIndex((line) => MOJIBAKE_RE.test(line));
+if (mojibakeLine !== -1) {
+  issues.push(
+    `mojibake u redu ${mojibakeLine + 1} (popravi: node scripts/fix-mojibake.mjs server/schema-ALL.sql)`,
+  );
+}
+for (const [index, line] of raw.split('\n').entries()) {
+  if (/^\s*\/\*|^\s*\*\/|^\s*\*\s/.test(line)) {
+    issues.push(`C-style komentar (/* */ ili *) umesto SQL crtice-crtica, red ${index + 1}`);
+    break;
+  }
+}
 
 if (issues.length) {
   console.error(`schema-ALL.sql: ${issues.length} problema (${lines} linija, ${(bytes / 1024).toFixed(1)} KB)`);

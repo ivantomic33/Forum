@@ -3,11 +3,16 @@
 # Ako se hosting konfiguriše ručno (Nginx/Apache), prekopiraj ove blokove.
 #
 # NAPOMENA: `style-src` zadržava `unsafe-inline` zbog React style atributa;
-# `script-src` ga NEMA. `connect-src` dopuni domenom API-ja (VITE_API_URL).
+# `script-src` ga NEMA — jedina dozvoljena inline skripta je tema pre prvog
+# paint-a (U-08) i ona ide preko `sha256` hash-a. Hash se NE prepisuje ručno:
+# `node scripts/check-security-headers.mjs` (CI) pada ako se razlikuje od
+# `index.html`; novi hash ispiše `node scripts/check-security-headers.mjs --print`.
 # Fontovi su self-hostovani (F-23), pa nema fonts.googleapis/gstatic.
+# N-07 — prerender ruta: Netlify/CF Pages servira `leaderboard.html` za
+# `/leaderboard` (bez „pretty URLs“ postavi redirect `/* .html 200`).
 
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: https: blob:; connect-src 'self' https://*.supabase.co; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'; upgrade-insecure-requests
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'sha256-xwAVh3qNFCEQC/8NyNQcq+v+uMUa4Lh7kirOPiVF8CQ='; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: https: blob:; connect-src 'self' https://*.supabase.co; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'; upgrade-insecure-requests
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
   Referrer-Policy: strict-origin-when-cross-origin

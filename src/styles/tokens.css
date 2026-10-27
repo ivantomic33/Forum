@@ -1,0 +1,409 @@
+/**
+ * SLOJ 1 — TOKENI (jedini izvor za boje, radius, senke, fontove i animacije)
+ *
+ * Menja se samo ovde. Komponente koriste `var(--color-*)`, `var(--radius-*)`,
+ * `var(--shadow-*)`, `var(--dur-*)`. `scripts/check-css-tokens.mjs` odbija
+ * hardkodovane hex/rgba/box-shadow vrednosti u drugim slojevima.
+ *
+ * 3.0 — „OBSIDIAN VIOLET“: crna baza (#050408), teget stepenice površina i
+ * ljubičasta kao JEDINA boja akcije. Princip je fiksna uloga boje:
+ *   crna      = platno / tišina (70-80% ekrana),
+ *   teget     = struktura (kartice, redovi, paneli, inputi, hover),
+ *   ljubičasta= akcija (CTA, aktivni tab, nit sekcije, naslov-hover).
+ * Statusne boje (amber = cena, rose = greška/istek, zelena = zajednica,
+ * cyan = forum/online) ostaju izvan brenda — nose značenje, ne dekoraciju.
+ * Šema je u `docs/dizajn-3.0/` (`03-NEXUS-3.0-Obsidian-Violet-dizajn.html`,
+ * vrednosti u `scripts/design/palette.mjs`). Bez glow-a na karticama i bez
+ * gradijenta na dugmadima. Svetla tema je u `components/theme.css`
+ * (`[data-theme='light']`).
+ */
+@import 'tailwindcss';
+@plugin '@tailwindcss/typography';
+
+@theme {
+  /*
+   * Površine — CRNA baza + teget stepenice (3.0 OBSIDIAN VIOLET).
+   *   surface-0  Void Black    — pozadina cele aplikacije (platno)
+   *   surface-1  Obsidian      — kartice i paneli (default)
+   *   surface-2  Ink Violet    — elevacija / dok / toast
+   *   surface-3  Navy Deep     — HOVER kartice, input polja (prvi pravi teget)
+   *   surface-4  Navy          — aktivno stanje, segment, chip, badge
+   *   surface-5  Navy Light    — najsvetliji sloj, retko (istaknuti red)
+   * Plavi podton tegeta razdvaja strukturu (teget) od akcije (ljubičasta).
+   */
+  --color-surface-0: #050408; /* Void Black — crna baza */
+  --color-surface-1: #0b0917; /* Obsidian — kartice, paneli */
+  --color-surface-2: #121026; /* Ink Violet — elevacija, toast, dok */
+  --color-surface-3: #171a38; /* Navy Deep — hover, inputi */
+  --color-surface-4: #1e2350; /* Navy — aktivno, segment, chip */
+  --color-surface-5: #2a2e66; /* Navy Light — retko, istaknuti red */
+
+  /*
+   * Dubina za ambijentalnu pozadinu (fixed slojevi, bez uticaja na layout).
+   * `indigo` = ljubičasti sjaj gore-lijevo („diše“ 26 s), `violet` = teget-royal
+   * sjaj dole-desno. `amber` je ugašen (0) — statusne boje ne ulaze u ambijent.
+   */
+  --color-depth-indigo: rgba(139, 92, 246, 0.24);
+  --color-depth-violet: rgba(59, 75, 255, 0.18);
+  --color-depth-amber: rgba(245, 196, 81, 0);
+
+  /* Prestige akcenti — rose u kombinaciji sa purple (šampion, featured) */
+  --color-rose: #fb7185;
+  --color-purple: #8b5cf6;
+
+  /* Akcenti u boji brenda za povezane gaming platforme (Profil) */
+  --color-brand-steam: #66c0f4;
+  --color-brand-discord: #5865f2;
+  --color-brand-youtube: #ff0000;
+  --color-brand-twitch: #9146ff;
+  --color-brand-epic: #e2e8f0;
+  --color-brand-riot: #ff4655;
+
+  /*
+   * PRIMARNA: Violet — JEDINA boja primarne akcije (CTA, aktivni nav tab,
+   * opšte vijesti, role badge). Glow je rezervisan samo za nju i aktivni tab.
+   */
+  --color-primary: #8b5cf6;
+  --color-primary-hover: #a78bfa;
+  --color-primary-active: #6d28d9;
+  /*
+   * POVRŠINA primarnog CTA: `#8b5cf6` + beli tekst = 4,23:1 (pada AA).
+   * Identitet i akcent ostaju `--color-primary`; za punu površinu sa belim
+   * tekstom koristi se tamnija nijansa (`#7c3aed` = 5,7:1).
+   */
+  --color-primary-surface: #7c3aed;
+  --color-primary-surface-hover: #6d28d9; /* tamnije na hover → i dalje ≥ 4,5:1 sa belim */
+  --color-primary-muted: rgba(139, 92, 246, 0.16);
+  --color-primary-subtle: rgba(139, 92, 246, 0.09);
+  --color-primary-fg: #a78bfa; /* čitljiva violet boja teksta na tamnoj podlozi (7,2:1) */
+  --color-indigo: #3b4bff; /* Royal Navy — teget-plavi akcent brenda (link/info) */
+  --color-navy-accent: #3b4bff; /* eksplicitno ime iz dizajna 3.0 */
+
+  /*
+   * SEKUNDARNA: Cyan — forum lista, PC Gaming, online/live status, hardver.
+   * Nikad primarna akcija.
+   */
+  --color-secondary: #38bdf8;
+  --color-secondary-hover: #7dd3fc;
+  --color-secondary-muted: rgba(56, 189, 248, 0.14);
+
+  /*
+   * TERCIJARNA: Rose — greške, ban, istekli popusti, opasne akcije, konzole.
+   */
+  --color-tertiary: #fb7185;
+  --color-tertiary-hover: #fda4af;
+  --color-prestige: #8b5cf6;
+  --color-tertiary-muted: rgba(251, 113, 133, 0.14);
+
+  /*
+   * ULOGOVANE BOJE ZONA
+   *   deal       — Popusti: cene, %, „ističe danas“, amber tabovi filtera.
+   *                Tekst na amber površini ide u `--color-on-deal` (≥ 4,5:1).
+   *   deal-fg    — amber tekst/ikona na TAMNOJ podlozi (lighter srodnik).
+   *   community  — Zajednica, XP napredak, verifikacija, „riješeno“.
+   *   community-fg — svetliji emerald za tekst na tamnoj podlozi.
+   *   gold/silver/bronze-rank — medalje rang liste (#1/#2/#3).
+   */
+  --color-deal: #f5c451;
+  --color-deal-fg: #f5c451;
+  --color-on-deal: #1a1203;
+  --color-community: #34d399;
+  --color-community-fg: #6ee7b7;
+  --color-gold-rank: #f5c451;
+  --color-silver-rank: #cbd5e1;
+  --color-bronze-rank: #f97316;
+
+  /* Semanticke */
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-error: #ef4444;
+  --color-info: #06b6d4;
+
+  /*
+   * Tekst — Paper / Mist / Ash / Dust iz dizajna 3.0 (mereno na surface-1):
+   * primary 17,3:1 · secondary 9,6:1 · tertiary 5,9:1 (na surface-2) ·
+   * muted 4,3:1 → samo placeholder/disabled, nikad telo teksta.
+   */
+  --color-text-primary: #f1effa;
+  --color-text-secondary: #b6b2d0;
+  --color-text-tertiary: #918cb4;
+  --color-text-muted: #7b7699;
+  --color-text-disabled: #655f80;
+  --color-text-on-primary: #ffffff;
+
+  /* Tekst na svetloj (light) podlozi — koristi ga `[data-theme='light']` */
+  --color-text-inverse: #050408;
+
+  /*
+   * Ivice — hairline umesto senki: kartice se odvajaju od crne po 1px ivici
+   * (#1C1930), input/segmenti po #262243, hover/aktivna kartica po #363060.
+   */
+  --color-border-subtle: #1c1930;
+  --color-border-default: #262243;
+  --color-border-strong: #363060;
+  --color-border-focus: rgba(167, 139, 250, 0.85);
+  --color-border-gold: rgba(139, 92, 246, 0.42); /* legacy ime → violet */
+  --color-border-gold-strong: rgba(167, 139, 250, 0.6);
+
+  /* Posebne površine */
+  --color-overlay: rgba(5, 4, 8, 0.82);
+  --color-input-bg: #171a38; /* Navy Deep — input je teget, ne siv */
+  --color-input-border: #262243;
+  --color-skeleton: #171a38;
+
+  /* Glass površine — samo Navbar, Modal, Drawer, Toast */
+  --glass-bg: rgba(11, 9, 23, 0.82);
+  --glass-bg-strong: rgba(11, 9, 23, 0.94);
+  --glass-blur: 14px;
+
+  /* Legacy alias-i — svi mapiraju na novu paletu */
+  --color-cyan: var(--color-secondary);
+  --color-cyan-glow: var(--color-secondary-hover);
+  --color-neon: var(--color-primary);
+  --color-neon-glow: var(--color-primary-hover);
+  --color-neon-dim: #4c1d95;
+  --color-accent-purple: var(--color-primary);
+  --color-accent-green: var(--color-success);
+  --color-legacy-tag-amber: var(--color-warning);
+  --color-accent-red: var(--color-error);
+  --color-accent-pink: var(--color-tertiary);
+
+  /*
+   * Pomocne boje za slojeve izvan `tokens.css`. Sve nastaju iz osnovne palete.
+   */
+  --color-on-solid: #ffffff; /* tekst na punoj boji (btn primary, badge) */
+  --color-on-solid-rgb: 255, 255, 255;
+  --color-primary-glow-soft: rgba(124, 58, 237, 0.3); /* senke/hover */
+  --color-primary-glow: rgba(139, 92, 246, 0.5); /* ikona/glow */
+  --color-primary-glow-strong: rgba(167, 139, 250, 0.4); /* tekst sjaj */
+  --color-indigo-glow: rgba(99, 102, 241, 0.12);
+  --color-secondary-glow: rgba(56, 189, 248, 0.12);
+  --color-secondary-glow-strong: rgba(56, 189, 248, 0.5);
+  --color-tertiary-glow: rgba(244, 63, 94, 0.14);
+  --color-success-glow: rgba(16, 185, 129, 0.35);
+  --color-error-glow: rgba(239, 68, 68, 0.42);
+  --color-text-secondary-glow: rgba(182, 178, 208, 0.35);
+  --color-prestige-deep: rgba(76, 29, 149, 0.3);
+  --color-primary-fg-light: #c4b5fd;
+  --color-info-fg: #7dd3fc;
+  --color-info-fg-soft: #bae6fd;
+  --color-tertiary-fg: #fda4af;
+  --color-tertiary-fg-soft: #fecdd3;
+  /* Ulogovane boje: emerald = zajednica/verifikacija, amber = popusti */
+  --color-success-fg: var(--color-community-fg);
+  --color-success-fg-soft: var(--color-community-fg);
+  --color-warning-fg: var(--color-deal-fg);
+  --color-warning-glow: rgba(245, 196, 81, 0.14);
+  --color-text-soft: #d7d2ea;
+  --color-font-white: #f1effa; /* avatar podloga / svetli tekst */
+  --color-canvas-top: #0b0917; /* ambijentalni gradijent tela */
+  --color-canvas-bottom: #050408;
+  --color-border-subtle-rgb: 28, 25, 48;
+  --color-border-default-rgb: 38, 34, 67;
+
+  /*
+   * AMBIJENT 3.0 — sitne animacije crne baze (sve ispod sadržaja, z-index 0).
+   * `grid-line` = 64px mreža maskirana radijalno; `particle` = zvezde koje
+   * lebde nagore; `scanline` = 1px linija koja prelazi ekran za 14 s.
+   * `surface-1`/`surface-2` su slojevi tela i sekcija (vidi `base.css`).
+   */
+  --color-grid-line: rgba(167, 139, 250, 0.055);
+  --color-particle: rgba(199, 183, 255, 0.55);
+  --color-particle-navy: rgba(107, 122, 255, 0.5);
+  --color-scanline: rgba(139, 92, 246, 0.10);
+
+  /* Hero overlay — tekst uvek čitljiv preko slike (linear do surface-0) */
+  --gradient-hero-fade: linear-gradient(
+    180deg,
+    var(--color-overlay-transparent) 0%,
+    var(--color-overlay-transparent) 40%,
+    rgba(5, 4, 8, 0.86) 78%,
+    var(--color-surface-0) 100%
+  );
+  --gradient-hero-fade-tight: linear-gradient(
+    180deg,
+    rgba(5, 4, 8, 0) 30%,
+    rgba(5, 4, 8, 0.9) 100%
+  );
+  /*
+   * Hero pojas (U-13): slika ide do ivica pojasa, a donjih ~55% se stapa u
+   * `surface-0` da bi tekst stajao na čistoj podlozi, a ne na slici.
+   * `transparent` (ne rgba) — da se na svetloj temi ne pojavi tamni veo.
+   */
+  --gradient-hero-band-fade: linear-gradient(
+    180deg,
+    transparent 0%,
+    transparent 30%,
+    color-mix(in srgb, var(--color-surface-0) 40%, transparent) 58%,
+    color-mix(in srgb, var(--color-surface-0) 86%, transparent) 80%,
+    var(--color-surface-0) 100%
+  );
+  --gradient-grid-line: linear-gradient(var(--color-grid-line) 1px, transparent 1px);
+  --gradient-grid-line-v: linear-gradient(90deg, var(--color-grid-line) 1px, transparent 1px);
+  --gradient-line: linear-gradient(var(--color-grid-line) 1px, transparent 1px);
+  --gradient-rule: linear-gradient(90deg, var(--color-accent-line-strong), var(--color-accent-line-fade));
+  /* Sken linija (L5): 1px violet nit koja putuje gore-dole 14 s */
+  --gradient-scanline: linear-gradient(
+    180deg,
+    transparent 0%,
+    var(--color-scanline) 45%,
+    var(--color-scanline) 55%,
+    transparent 100%
+  );
+
+  /* GPU/overlay pomoćne boje */
+  --color-overlay-transparent: rgba(5, 4, 8, 0);
+  --color-accent-line-strong: var(--color-primary-fg);
+  --color-accent-line-fade: rgba(167, 139, 250, 0);
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+
+  /*
+   * Elevacija — neutralne senke (bez violet glow-a).
+   *   sm → kartice (1px ivica + suptilna senka)
+   *   md → hover podignuta kartica
+   *   lg → Modal/Drawer/Toast
+   *   glow → SAMO primarni CTA i aktivni tab (jedan po viewportu)
+   */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.24);
+  --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.32);
+  --shadow-lg: 0 20px 48px rgba(0, 0, 0, 0.5);
+  --shadow-glow: 0 0 0 1px rgba(139, 92, 246, 0.45), 0 8px 24px -8px rgba(124, 58, 237, 0.55);
+  --shadow-level-1: var(--shadow-sm);
+  --shadow-level-2: var(--shadow-md);
+  --shadow-level-3: var(--shadow-lg);
+  --shadow-hover: var(--shadow-md);
+  --shadow-primary: var(--shadow-glow);
+  --shadow-gold-ring: 0 0 0 1px var(--color-border-gold);
+  --glow-gold-text: none;
+
+  /*
+   * Gradijenti — DOZVOLJENI samo za: logo, auth panel, featured badge i hero
+   * fade. Nikad na dugmadima i karticama.
+   */
+  --gradient-brand: linear-gradient(135deg, #8b5cf6 0%, #3b4bff 100%);
+  --gradient-deal: linear-gradient(180deg, rgba(245, 196, 81, 0.16) 0%, transparent 100%);
+  --gradient-cyber: linear-gradient(90deg, #8b5cf6 0%, #3b4bff 100%);
+  --gradient-cyber-vertical: linear-gradient(180deg, #3b4bff 0%, #8b5cf6 100%);
+  --gradient-prestige: linear-gradient(90deg, #8b5cf6 0%, #3b4bff 100%);
+  /* Prestige ring #1 (rang lista): ljubičasta → royal, samo pobednik */
+  --gradient-prestige-ring: linear-gradient(135deg, #8b5cf6 0%, #3b4bff 100%);
+  /* Sheen na hover kartice — samo afordansa, nikad default stanje */
+  --gradient-card-sheen: linear-gradient(140deg, rgba(139, 92, 246, 0.10), transparent 55%);
+
+  /* Motion — 150–300ms ease-out mikro-interakcije */
+  --ease-forge: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out-soft: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-fast: 160ms;
+  --dur-base: 200ms;
+  --dur-slow: 280ms;
+  --animate-shimmer: shimmer 1.8s linear infinite;
+  --animate-fade-in: fadeIn 0.2s var(--ease-forge);
+
+  /*
+   * Tipografija — Inter Tight za naslove, Inter za tekst, JetBrains Mono za
+   * brojeve/cene/meta. Bez dodatnih mrežnih zahteva.
+   */
+  --font-family-display: "Inter Tight", "Inter", system-ui, -apple-system, sans-serif;
+  --font-family-body: "Inter", system-ui, -apple-system, sans-serif;
+  --font-family-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-family-heading: "Inter Tight", "Inter", system-ui, sans-serif;
+
+  --font-display: var(--font-family-display);
+  --font-heading: var(--font-family-heading);
+  --font-sans: var(--font-family-body);
+  --font-mono: var(--font-family-mono);
+
+  /*
+   * TIPOGRAFSKA SKALA (jedina dozvoljena skala za UI)
+   *
+   *   hero     36 → 56 px (H1 strane / lead članak), Inter Tight 800
+   *   h2       28 px      (naslov sekcije), Inter Tight 700
+   *   h3       17 px      (naslov kartice / teme), Inter Tight 600
+   *   body     16 / 26    (telo teksta)
+   *   meta     13 / 18    (autor, datum, broj pregleda) — nikad ispod
+   *   eyebrow  11 / 16, UPPERCASE + .08em, Inter 700
+   *   number   28 px mono (cene, statTile brojevi)
+   */
+  --text-hero: clamp(2.25rem, 1.4rem + 3vw, 3.5rem);
+  --text-hero-line: 1.05;
+  --text-h1: var(--text-hero);
+  --text-h1-line: var(--text-hero-line);
+  --text-h2: 1.75rem;
+  --text-h2-line: 2.125rem;
+  --text-h3: 1.0625rem;
+  --text-h3-line: 1.5rem;
+  --text-lead: 1.125rem;
+  --text-lead-line: 1.6;
+  --text-body: 1rem;
+  --text-body-line: 1.625rem;
+  --text-meta: 0.8125rem;
+  --text-meta-line: 1.125rem;
+  --text-label: 0.8125rem;
+  --text-label-line: 1.125rem;
+  --text-micro: 0.75rem;
+  --text-micro-line: 1rem;
+  --text-eyebrow: 0.6875rem;
+  --text-eyebrow-line: 1rem;
+  --text-number: 1.75rem;
+  --text-number-line: 1.15;
+  --text-price: 2rem; /* 32px — cena je najjači element deal kartice */
+  --text-price-line: 1.1;
+
+  /* Tailwind utiliti (`text-hero`, `text-h2`, `text-number`…) */
+  --text-*: initial;
+  --text-hero--line-height: var(--text-hero-line);
+  --text-h1--line-height: var(--text-h1-line);
+  --text-h2--line-height: var(--text-h2-line);
+  --text-h3--line-height: var(--text-h3-line);
+  --text-lead--line-height: var(--text-lead-line);
+  --text-body--line-height: var(--text-body-line);
+  --text-meta--line-height: var(--text-meta-line);
+  --text-label--line-height: var(--text-label-line);
+  --text-micro--line-height: var(--text-micro-line);
+  --text-eyebrow--line-height: var(--text-eyebrow-line);
+  --text-number--line-height: var(--text-number-line);
+  --text-price--line-height: var(--text-price-line);
+
+  /* Jedan fokus za sve: 2px primary-fg + 2px offset */
+  --ring-focus: 0 0 0 2px var(--color-surface-0), 0 0 0 4px var(--color-primary-fg);
+  --focus-ring: 2px solid var(--color-primary-fg);
+  --focus-offset: 2px;
+}
+
+/*
+ * Tipografska skala je `:root` promenljiva (NE u `@theme`): Tailwind v4 u
+ * `@theme` emituje samo imena koja prepoznaje ili koja su iskorišćena kao
+ * `--text-*` util (nama ne treba), pa bi `--text-hero` postojao samo u
+ * build-u uz `text-hero` klasu — u dev-u bi `var(--text-hero)` bio prazan.
+ */
+:root {
+  --text-hero: clamp(2.25rem, 1.4rem + 3vw, 3.5rem);
+  --text-hero-line: 1.05;
+  --text-h1: var(--text-hero);
+  --text-h1-line: var(--text-hero-line);
+  --text-h2: 1.75rem;
+  --text-h2-line: 2.125rem;
+  --text-h3: 1.0625rem;
+  --text-h3-line: 1.5rem;
+  --text-lead: 1.125rem;
+  --text-lead-line: 1.6;
+  --text-body: 1rem;
+  --text-body-line: 1.625rem;
+  --text-meta: 0.8125rem;
+  --text-meta-line: 1.125rem;
+  --text-label: 0.8125rem;
+  --text-label-line: 1.125rem;
+  --text-micro: 0.75rem;
+  --text-micro-line: 1rem;
+  --text-eyebrow: 0.6875rem;
+  --text-eyebrow-line: 1rem;
+  --text-number: 1.75rem;
+  --text-number-line: 1.15;
+  --text-price: 2rem;
+  --text-price-line: 1.1;
+}

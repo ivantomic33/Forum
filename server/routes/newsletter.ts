@@ -4,8 +4,7 @@ import { db } from '../lib/store.js';
 import { authenticate, authorize, type AuthRequest } from '../middleware/auth.js';
 import { newsletterResendSchema, subscribeSchema, validate } from '../lib/schemas.js';
 import { isDisposableEmail } from '../lib/validation.js';
-import { sendNewsletterConfirmation, appUrl } from '../lib/email.js';
-import { devTokensExposed } from '../lib/env.js';
+import { appUrl } from '../lib/email.js';
 import { logger } from '../lib/logger.js';
 import { parseSegment, subscriberSegment } from '../lib/newsletter.js';
 
@@ -72,14 +71,12 @@ router.post('/subscribe', async (req, res, next) => {
 
     await db.newsletter.subscribe(email);
     // F-07 — double opt-in: ovde se upisuje samo PRETPLATA NA ČEKANJU.
-    // Token se vraća klijentu samo u lokalnom razvoju (NODE_ENV=development + DEV_EXPOSE_TOKENS=1).
-    const confirmToken = signConfirmToken(email);
-    const mailSent = await sendNewsletterConfirmation(email, confirmToken);
-
-    // Odgovor NIKAD ne vraća ceo zapis pretplatnika (#22)
+    // Potvrda mejlom je ugašena (mejl samo za verifikaciju naloga i reset
+    // lozinke), pa pretplata ostaje na čekanju — kampanje/digest se ionako ne
+    // šalju mejlom.
     res.status(201).json({
-      message: 'Proverite email i potvrdite pretplatu.',
-      ...(devTokensExposed() && !mailSent ? { confirmToken } : {}),
+      message: 'Pretplata je zabeležena. Mejl potvrde nije poslat jer su mejl notifikacije ugašene.',
+      mailSent: false,
     });
   } catch (err) {
     next(err);
@@ -193,11 +190,11 @@ router.post('/resend', authenticate, authorize('admin', 'moderator'), async (req
       return res.status(409).json({ error: 'Pretplata je već potvrđena.' });
     }
 
-    const mailSent = await sendNewsletterConfirmation(match.email, signConfirmToken(match.email));
-    logger.info({ actor: req.user!.id, mailSent }, 'newsletter_confirmation_resent');
+    // Mejl potvrde je ugašen (mejl samo za verifikaciju naloga i reset lozinke).
+    logger.info({ actor: req.user!.id }, 'newsletter_confirmation_resent');
     res.json({
-      message: mailSent ? 'Potvrda je ponovo poslata.' : 'Mejl nije poslat — proveri EMAIL provajdera.',
-      sent: mailSent,
+      message: 'Mejl potvrde se ne šalje — mejl notifikacije su ugašene.',
+      sent: false,
     });
   } catch (err) {
     next(err);

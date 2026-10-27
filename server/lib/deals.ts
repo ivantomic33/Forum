@@ -27,6 +27,26 @@ export interface GameRecord {
   createdAt: string;
 }
 
+/** 2.8.0 — community vodič za igru (Game Page sekcija „Vodiči“). */
+export type GuideCategory = 'walkthrough' | 'builds' | 'achievements' | 'tips' | 'general';
+export type GuideStatus = 'published' | 'draft' | 'archived';
+
+export interface GuideRecord {
+  id: string;
+  gameId: string;
+  authorId: string;
+  slug: string;
+  title: string;
+  summary: string | null;
+  content: string;
+  category: GuideCategory;
+  score: number;
+  viewsCount: number;
+  status: GuideStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type DealSort = 'newest' | 'top' | 'discount' | 'expiring';
 export type DealStatus = 'active' | 'expired' | 'removed';
 export type DealVote = 'up' | 'down' | null;
@@ -63,6 +83,9 @@ export interface DealRecord {
   updatedAt: string;
   /** Glas prijavljenog korisnika (`null` za goste). */
   myVote?: DealVote;
+  /** F-9 — koliko je ljudi označilo „Kupio sam“ i da li je to učinio prijavljeni. */
+  claimCount?: number;
+  myClaim?: boolean;
 }
 
 export interface DealFilter {

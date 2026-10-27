@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Clock, ExternalLink, Gamepad2, ShieldCheck, Store, Trash2, TrendingDown } from 'lucide-react';
+import { ArrowLeft, Clock, ExternalLink, Gamepad2, MessageSquare, ShieldCheck, ShoppingBag, Store, Trash2, TrendingDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '../lib/api';
 import { useAuthStore } from '../store/authStore';
 import { usePageMeta } from '../lib/pageMeta';
-import { Badge, Button, Card, CardHeader, ErrorState, Skeleton } from '../components/ui';
+import { Badge, Button, Card, CardHeader, ErrorState, Skeleton, cn } from '../components/ui';
 import { VerifiedBadge } from '../components/ui/VerifiedBadge';
 import { ReportButton } from '../components/ReportButton';
 import { VoteButtons } from '../components/deals/VoteButtons';
@@ -29,6 +29,8 @@ export default function DealPage() {
   const queryClient = useQueryClient();
   const { user, isAuthenticated } = useAuthStore();
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // F-3 — „Diskutuj o ovom popustu“: pravi temu vezanu za deal.
+  const [discussPending, setDiscussPending] = useState(false);
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['deal', id, user?.id ?? 'guest'],
@@ -59,6 +61,55 @@ export default function DealPage() {
       navigate('/deals');
     },
     onError: (error: any) => toast.error(error?.message || 'Brisanje nije uspelo.'),
+  });
+
+  /**
+   * F-3 — „Diskutuj o ovom popustu“.
+   *
+   * Tema se pravi u `lfg` (nema subforuma „Deals“, a popust je poziv na
+   * razgovor); `dealId` vezuje temu za deal, pa kartica popusta ostaje na
+   * vrhu teme.
+   */
+  const startDiscussion = async () => {
+    if (!deal) return;
+    if (!isAuthenticated) {
+      toast.info('Prijavi se da bi otvorio temu o ovom popustu.');
+      navigate('/login');
+      return;
+    }
+    setDiscussPending(true);
+    try {
+      const intro = deal.gameTitle
+        ? `${deal.gameTitle} — ${formatPrice(deal.price, deal.currency)} u ${deal.store}.`
+        : `${formatPrice(deal.price, deal.currency)} u ${deal.store}.`;
+      const thread = await api.forum.createThread('lfg', {
+        title: `Popust: ${deal.title}`.slice(0, 150),
+        content: `<p>${intro} Vredi li po ovoj ceni? Iskustva i saveti dobrodošli.</p>`,
+        tags: ['popusti'],
+        dealId: deal.id,
+      });
+      toast.success('Tema je otvorena.');
+      queryClient.invalidateQueries({ queryKey: ['forum-threads'] });
+      navigate(`/thread/${thread.id}`);
+    } catch (error: any) {
+      toast.error(error?.message || 'Tema nije otvorena.');
+    } finally {
+      setDiscussPending(false);
+    }
+  };
+
+  /**
+   * F-9 — „Kupio sam“. Nije verifikacija kupovine, već socijalni dokaz: broj
+   * ljudi koji su potvrdili da su kupili za ovu cenu. Toggle (poništivo).
+   */
+  const claimMutation = useMutation({
+    mutationFn: (claim: boolean) => (claim ? api.deals.claim(id) : api.deals.unclaim(id)),
+    onSuccess: (result) => {
+      toast.success(result.claimed ? 'Hvala — oznaka „Kupio sam“ je sačuvana.' : 'Oznaka je uklonjena.');
+      queryClient.invalidateQueries({ queryKey: ['deal', id] });
+      queryClient.invalidateQueries({ queryKey: ['deals'] });
+    },
+    onError: (error: any) => toast.error(error?.message || 'Oznaka nije sačuvana.'),
   });
 
   const verifyMutation = useMutation({
@@ -182,6 +233,15 @@ export default function DealPage() {
                   </div>
                 </div>
                 <div className="ml-auto flex flex-wrap gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={startDiscussion}
+                    loading={discussPending}
+                    leftIcon={<MessageSquare size={14} aria-hidden="true" />}
+                  >
+                    Diskutuj o popustu
+                  </Button>
                   <a
                     href={deal.url}
                     target="_blank"
@@ -214,6 +274,34 @@ export default function DealPage() {
 
               <div className="mt-5 flex flex-wrap items-center gap-3">
                 <VoteButtons deal={deal} size="md" invalidateKeys={[['deal', id], ['deals'], ['games']]} />
+                {/* F-9 — socijalni dokaz; autor ne potvrđuje sopstveni deal. */}
+                {(!isAuthenticated || deal.authorId !== user?.id) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!isAuthenticated) {
+                        navigate('/login');
+                        return;
+                      }
+                      claimMutation.mutate(!deal.myClaim);
+                    }}
+                    disabled={claimMutation.isPending}
+                    aria-pressed={Boolean(deal.myClaim)}
+                    className={cn(
+                      'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition-colors disabled:opacity-60',
+                      deal.myClaim
+                        ? 'border-emerald-400/40 bg-emerald-400/10 text-emerald-200'
+                        : 'border-white/[0.10] text-white/70 hover:text-white',
+                    )}
+                    title="Označite da ste kupili preko ovog deal-a — pomaže drugima da procene ponudu"
+                  >
+                    <ShoppingBag size={13} aria-hidden="true" />
+                    {deal.myClaim ? 'Kupio sam' : 'Kupio sam?'}
+                    {(deal.claimCount ?? 0) > 0 && (
+                      <span className="font-mono tabular-nums text-white/60">{deal.claimCount}</span>
+                    )}
+                  </button>
+                )}
                 <span className="text-xs text-white/40">Glasaj ako je deal tačan i koristan.</span>
                 <div className="ml-auto flex flex-wrap items-center gap-3">
                   {canManage && (

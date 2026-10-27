@@ -1,6 +1,14 @@
-import { db, xpForLevel, type UserRecord } from './store.js';
+import { db, levelFromXp as levelFromXpShared, levelProgress, xpForLevel, type UserRecord } from './store.js';
 import { logger } from './logger.js';
 import { notify } from './notifications.js';
+import {
+  isSharedFallbackError,
+  sharedClient,
+  sharedKey,
+  warnSharedOnce,
+  withLock,
+  utcDay,
+} from './sharedStore.js';
 
 /**
  * GEJMIFIKACIJA — JEDNO MESTO
@@ -21,17 +29,26 @@ export const XP = {
   ACCOUNT_CONNECTED: 25,
   FOUR_ACCOUNTS: 150,
   UPVOTE_RECEIVED: 1,
+  /**
+   * 6.x — „koristan odgovor“: autor teme prihvatio tvoj odgovor kao rešenje.
+   * Odvojeno od glasova (karma) da se reputacija ne može napumpati lajkovima;
+   * broj prihvatanja živi u `users.solved_answers`.
+   */
+  ACCEPTED_ANSWER: 10,
 } as const;
 
 /** Dnevni limit XP-a po korisniku. */
 export const DAILY_XP_CAP = 300;
 
-/** Najviši XP koji pripada svakom nivou — inverz od `xpForLevel`. */
-export function levelFromXp(xp: number): number {
-  let level = 1;
-  while (level < 200 && xpForLevel(level + 1) <= xp) level += 1;
-  return level;
-}
+/**
+ * Nivo za dati XP — inverz od `xpForLevel`.
+ * Implementacija je u `store.ts` (uz `levelRange`/`levelProgress`), da bi svaka
+ * ruta i svaki prikaz koristili ISTU krivu. Re-export ostaje za postojeće uvoznike.
+ */
+export const levelFromXp = levelFromXpShared;
+
+/** Napredak unutar nivoa (`into`/`needed`/`remaining`) — za API i profil. */
+export { levelProgress };
 
 export type XpReason =
   | 'thread'
@@ -41,7 +58,14 @@ export type XpReason =
   | 'upvote_received'
   | 'profile_bio'
   | 'article_comment'
-  | 'admin_award';
+  | 'admin_award'
+  /** F-2 — dnevni loop: bonus za prvi post dana i dnevni kvest. */
+  | 'daily_bonus'
+  | 'daily_quest'
+  /** 2.11.0 — autor teme označio tvoj odgovor kao rešenje (`accepted answer`). */
+  | 'accepted_answer'
+  /** 6.x — reputacija: brojač prihvaćenih odgovora (+1 po odgovoru). */
+  | 'solved_answers';
 
 export interface AwardContext {
   reason: XpReason;
@@ -49,6 +73,10 @@ export interface AwardContext {
   threadCount?: number;
   replyCount?: number;
   connectedCount?: number;
+  /** Broj komentara na člancima (`article_commenter` bedž). */
+  commentCount?: number;
+  /** Nivo posle promene (`level_10` bedž). */
+  level?: number;
 }
 
 export interface AwardResult {
@@ -59,12 +87,22 @@ export interface AwardResult {
   newBadges: string[];
   /** Kvestovi koji su ovim događajem prešli cilj (code ↓). */
   completedQuests?: string[];
+  /** 6.x — novo stanje brojača prihvaćenih odgovora (samo za `solved_answers`). */
+  solvedAnswers?: number;
 }
 
 /* ------------------------ dnevni budžet XP-a ------------------------ */
 
-// In-memory budžet (reset u ponoć). U Supabase-u bi ovo bio UPDATE ... WHERE
-// xp_log_date = CURRENT_DATE; do zvanične tabele, ovo štiti od zloupotrebe.
+/**
+ * N-09 — dnevni budžet je deljeno stanje: `xp_budget (user_id, day, xp)`.
+ *
+ * Ranije je `Map` živeo u procesu, pa je limit od 300 XP važio po instanci —
+ * sa 2 instance isti korisnik je mogao da sakupi 600. Sada:
+ *   - sa bazom → RPC `spend_daily_xp` (jedan `INSERT … ON CONFLICT DO UPDATE`,
+ *     atomičan i između instanci),
+ *   - bez baze (memory/test) → isti `Map`, ali ispod `withLock` mutex-a unutar procesa,
+ *     da ni tu paralelni `await`-ovi ne pročitaju isto stanje dvaput.
+ */
 const budgets = new Map<string, { day: string; used: number }>();
 
 /** Keš upozorenja — sprečava spam u logu. */
@@ -75,9 +113,10 @@ export function warnOnce(key: string, message: string) {
   console.warn(message);
 }
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => utcDay();
 
-function consumeDailyXp(userId: string, amount: number): { granted: number; capped: boolean } {
+/** Memorijski budžet — samo fallback; poziva se isključivo unutar `withLock`-a. */
+function consumeDailyXpLocal(userId: string, amount: number): { granted: number; capped: boolean } {
   const day = today();
   const current = budgets.get(userId);
   const used = current?.day === day ? current.used : 0;
@@ -87,10 +126,60 @@ function consumeDailyXp(userId: string, amount: number): { granted: number; capp
   return { granted, capped: granted < amount };
 }
 
-/** Za testiranje / admin reset. */
-export function resetDailyXpBudget(userId?: string) {
+/**
+ * Potroši `amount` iz dnevnog budžeta. Vraća STVARNO dodeljeno i `used` (za log).
+ *
+ * Baza je autoritet kada je podešena. Ako RPC/tabela ne postoji ili baza nije
+ * dostupna — upozori jednom i nastavi memorijski (akcija korisnika ne puca).
+ */
+async function consumeDailyXp(
+  userId: string,
+  amount: number,
+): Promise<{ granted: number; capped: boolean; used: number; persisted: boolean }> {
+  const safeAmount = Math.max(0, Math.floor(amount));
+  const client = sharedClient();
+
+  return withLock(sharedKey('xp_budget', userId), async () => {
+    if (client) {
+      const { data, error } = await client.rpc('spend_daily_xp', {
+        p_user_id: userId,
+        p_amount: safeAmount,
+        p_cap: DAILY_XP_CAP,
+      });
+
+      const row = !error && Array.isArray(data) ? data[0] : null;
+      if (row) {
+        const granted = Number(row.granted ?? 0);
+        return { granted, capped: Boolean(row.capped) || granted < safeAmount, used: Number(row.used ?? 0), persisted: true };
+      }
+
+      if (error && !isSharedFallbackError(error)) {
+        // Prava greška (npr. kršenje ograničenja) — mora da se vidi, ali ne sme
+        // da obori temu/odgovor koji je već sačuvan.
+        logger.error({ err: error, userId }, 'xp_budget_rpc_failed');
+      } else {
+        warnSharedOnce('xp_budget', error);
+      }
+    }
+
+    const local = consumeDailyXpLocal(userId, safeAmount);
+    const used = budgets.get(userId)?.used ?? local.granted;
+    return { ...local, used, persisted: false };
+  });
+}
+
+/** Za testiranje / admin reset. Sa bazom briše red za danas (ili sve). */
+export async function resetDailyXpBudget(userId?: string) {
   if (userId) budgets.delete(userId);
   else budgets.clear();
+
+  const client = sharedClient();
+  if (!client) return;
+  try {
+    await client.rpc('reset_daily_xp', { p_user_id: userId ?? null, p_day: today() });
+  } catch (err) {
+    warnSharedOnce('xp_budget_reset', err);
+  }
 }
 
 /* ----------------------------- bedževi ----------------------------- */
@@ -111,12 +200,25 @@ export const BADGE_CATALOG = {
   veteran: { name: 'Veteran', desc: 'Dostignite 5.000 XP' },
   founder: { name: 'Osnivač', desc: 'Među prvim članovima zajednice' },
   legend: { name: 'Legenda', desc: 'Posebno dodeljeno dostignuće' },
+  article_commenter: { name: 'Čitač sa mišljenjem', desc: 'Komentarišite 5 članaka' },
+  streak_keeper: { name: 'Čuvar niza', desc: '7 dana prijave zaredom' },
+  level_10: { name: 'Veteran nivoa', desc: 'Dostignite nivo 10' },
+  // 3.0.0 — SISTEMSKI bedževi: dodeljuje ih isključivo administracija.
+  // Pre su postojali SAMO kao `<option>` u admin modalu i nigde u katalogu —
+  // profil ih nije prikazao (`getBadge()` ne nađe definiciju), a notifikacija je
+  // nosila sirovi kod („beta-tester“) umesto imena.
+  'beta-tester': { name: 'Beta tester', desc: 'Rano testiranje platforme' },
+  'tournament-winner': { name: 'Šampion turnira', desc: 'Pobeda na NEXUS turniru' },
+  'vip-supporter': { name: 'VIP pretplatnik', desc: 'Podrška zajednici' },
+  'content-creator': { name: 'Kreator sadržaja', desc: 'Gaming sadržaj u ime portala' },
+  'community-mvp': { name: 'MVP zajednice', desc: 'Poseban doprinos zajednici' },
+  'hardware-guru': { name: 'Hardver guru', desc: 'Stručnost u hardveru i build-ovima' },
 } as const;
 
 /** Bedževi se dodeljuju na osnovu stvarnih događaja, nikad na registraciji. */
 export function evaluateBadges(
   user: Pick<UserRecord, 'badges'>,
-  ctx: AwardContext & { xp: number; karma: number },
+  ctx: AwardContext & { xp: number; karma: number; level?: number },
 ): string[] {
   const owned = new Set(user.badges ?? []);
   const earned: string[] = [];
@@ -135,6 +237,9 @@ export function evaluateBadges(
   grant('helpful', (ctx.replyCount ?? 0) >= 25);
   grant('influencer', (ctx.connectedCount ?? 0) >= 4);
   grant('veteran', ctx.xp >= 5000);
+  // Novi bedževi (3.1): nivo i kontekst događaja.
+  grant('level_10', (ctx.level ?? 0) >= 10);
+  grant('article_commenter', (ctx.commentCount ?? 0) >= 5);
 
   return earned;
 }
@@ -153,16 +258,18 @@ export async function awardXp(userId: string, amount: number, ctx: AwardContext)
     // Data layer sam rešava gde idu badges (u kolonu ako postoji, inače u
     // lokalno fallback skladište) — ovde se ne radi probni upis koji bi
     // pregazio postojeće bedževe praznim nizom.
-    const { granted, capped } = consumeDailyXp(userId, amount);
+    const { granted, capped } = await consumeDailyXp(userId, amount);
     const nextXp = user.xp + granted;
     const nextLevel = levelFromXp(nextXp);
-    const levelUp = nextLevel > user.level;
+    // Poredi se sa nivoom izvedenim iz XP-a, ne sa (moguće zastarelom) kolonom.
+    const levelUp = nextLevel > levelFromXp(user.xp);
 
     const newBadges = evaluateBadges(
       { badges: user.badges ?? [] },
       {
         ...ctx,
         xp: nextXp,
+        level: nextLevel,
         karma: user.karma + (ctx.reason === 'upvote_received' ? granted : 0),
       },
     );
@@ -177,10 +284,26 @@ export async function awardXp(userId: string, amount: number, ctx: AwardContext)
       newBadges.push('influencer');
     }
 
+    // FIX (race condition): između početnog `findById` i ovog upisa neki drugi
+    // poziv (npr. admin `addBadge`, paralelna dodela) može dodati bedž.
+    // Upis iz zastarelog snapshot-a bi ga pregazio i izgubio — zato se pre
+    // spajanja bedževa pročita svež stanje korisnika.
+    const fresh = (await db.users.findById(userId)) ?? user;
+    // 6.x — reputacija: brojač prihvaćenih odgovora raste samo na `solved_answers`
+    // (prihvaćanje od strane autora teme). Čita se SVEŽE stanje iz baze, pa
+    // dva istovremena prihvatanja u različitim temama ne gube jedno drugo.
+    const solvedAnswers =
+      ctx.reason === 'solved_answers'
+        ? ((fresh as { solvedAnswers?: number }).solvedAnswers ?? 0) + 1
+        : undefined;
+    // VAŽNO: `awardXp(id, 0, { reason: 'solved_answers' })` NE SME da prepiše XP
+    // zastarelim snapshot-om (`user` je pročitan pre drugog, paralelnog poziva) —
+    // tada bi +10 XP od prihvaćenog odgovora bilo izgubljeno. Zato se XP šalje
+    // samo kada je zaista dodeljen; reputacija menja samo svoj brojač.
     const updated = await db.users.update(userId, {
-      xp: nextXp,
-      level: nextLevel,
-      badges: [...(user.badges ?? []), ...newBadges],
+      ...(granted > 0 ? { xp: nextXp, level: nextLevel } : {}),
+      ...(newBadges.length ? { badges: [...(fresh.badges ?? []), ...newBadges] } : {}),
+      ...(solvedAnswers !== undefined ? { solvedAnswers } : {}),
     });
 
     // Normalizovana tabela je izvor istine — keš kolona je samo brz prikaz.
@@ -200,7 +323,23 @@ export async function awardXp(userId: string, amount: number, ctx: AwardContext)
         type: 'badge_earned',
         title: 'Novi bedž! 🏅',
         message: badge ? `Osvojili ste bedž „${badge.name}“ — ${badge.desc}.` : `Osvojili ste bedž „${code}“.`,
+        // Ruta bez `:username` uspe (ProfilePage preusmeri na sebe), ali je
+        // doslednije slati pun put — isti obrazac kao ostali linkovi.
         link: '/profile?tab=badges',
+      }).catch(() => null);
+    }
+
+    // F-2 — „Stigao si do novog nivoa“: bez ovoga se level-up vidi samo kao
+    // promena broja na profilu. Jedna notifikacija po prelasku (ako XP preskoči
+    // dva nivoa, poruka nosi krajnji nivo, ne dve notifikacije).
+    if (levelUp && granted > 0) {
+      const progress = levelProgress(nextXp);
+      await notify({
+        userId,
+        type: 'level_up',
+        title: `Novi nivo: ${nextLevel} 🎉`,
+        message: `Stigao si do nivoa ${nextLevel}. Nastavi da pišeš — do nivoa ${nextLevel + 1} treba još ${progress.remaining.toLocaleString('sr-Latn-RS')} XP (${xpForLevel(nextLevel + 1).toLocaleString('sr-Latn-RS')} XP ukupno).`,
+        link: '/profile',
       }).catch(() => null);
     }
 
@@ -214,6 +353,7 @@ export async function awardXp(userId: string, amount: number, ctx: AwardContext)
       levelUp,
       newBadges,
       completedQuests,
+      solvedAnswers,
     };
   } catch (error) {
     logger.error({ err: error, userId }, 'awardXp_failed');

@@ -48,8 +48,21 @@ function formatHuman(obj: any): string {
 
   // Poruke aplikacije (start, seed, greške)
   const msg = obj.msg ?? (obj.error ?? '');
+  // Kontekst (userId, type, err…) se ranije gubio u ljudskom formatu — bez njega
+  // je `notification_create_failed` bio samo reč bez razloga. Ključna polja
+  // (`error`, `type`, `code`, `count`, `status`) idu uz poruku, `err` kao razlog.
+  const detailKeys = ['error', 'detail', 'code', 'type', 'status', 'count', 'userId', 'threadId', 'step'];
+  const details = detailKeys
+    .filter((key) => obj[key] !== undefined && obj[key] !== null)
+    .map((key) => `${key}=${typeof obj[key] === 'object' ? JSON.stringify(obj[key]) : obj[key]}`)
+    .join(' ');
+  const err = obj.err;
+  const errText =
+    err && typeof err === 'object'
+      ? ` | err=${err.message ?? err.type ?? JSON.stringify(err)}${err.code ? ` (${err.code})` : ''}`
+      : '';
   const prefix = obj.level >= 40 ? colorFor(obj.level, '!') : ' ';
-  return `${prefix} ${colorFor(30, `[${time}]`)}  ${msg}`;
+  return `${prefix} ${colorFor(30, `[${time}]`)}  ${msg}${details ? ` ${details}` : ''}${errText}`;
 }
 
 /**

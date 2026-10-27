@@ -7,14 +7,23 @@
     "skipLibCheck": true,
     "strict": true,
     "resolveJsonModule": true,
+    // N10 — `contracts/` živi u korenu repozitorijuma (deljeni modul), pa je
+    // `rootDir` koren projekta: `npm run build` upisuje `server/dist/server/...`.
+    // Vite ostaje bez `outDir` promene jer `tsc` ovde služi samo za tipove.
     "outDir": "./dist",
-    "rootDir": ".",
+    "rootDir": "..",
+    "baseUrl": ".",
+    "paths": {
+      "zod": ["./node_modules/zod"]
+    },
     "types": [
       "node"
     ]
   },
+  // N10 — provera ugovora front↔back je deo backend typecheck-a.
   "include": [
-    "./**/*.ts"
+    "./**/*.ts",
+    "../contracts/*.ts"
   ],
   "exclude": [
     "node_modules",

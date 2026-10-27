@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { db, MEMORY_CATEGORIES } from '../lib/store.js';
+import { categoriesResponseSchema } from '../../contracts/index.js';
+import { respond } from '../lib/respond.js';
 
 const router = Router();
 
@@ -11,7 +13,7 @@ const router = Router();
 router.get('/', async (_req, res, next) => {
   try {
     const categories = await db.forum.listCategories();
-    res.json({ categories: categories.length ? categories : MEMORY_CATEGORIES });
+    respond(res, categoriesResponseSchema, { categories: categories.length ? categories : MEMORY_CATEGORIES });
   } catch (err) {
     next(err);
   }

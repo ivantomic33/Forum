@@ -1,5 +1,16 @@
-import { motion, AnimatePresence, type HTMLMotionProps } from 'framer-motion';
+import {
+  AnimatePresence,
+  domAnimation,
+  LazyMotion,
+  m,
+  type HTMLMotionProps,
+} from 'framer-motion';
 import { useRef, useState, type ReactNode } from 'react';
+
+/*
+ * N-06 ‚Äî `m` + `LazyMotion` sa `domAnimation` bundle-om (layout, gesteri i
+ * drag nisu potrebni) umesto punog `motion` runtime-a.
+ */
 
 /* ========== VARIJANTE ANIMACIJA ========== */
 
@@ -47,10 +58,19 @@ export const springPop = {
 
 /* ========== WRAPPER KOMPONENTE ========== */
 
-/** Staggered container ó deca koriste <StaggerItem /> */
+/**
+ * LazyMotion + `domAnimation` ‚Äî `m` komponente rade samo unutar ovog provajdera.
+ * `components/motion.tsx` nije na kritiƒçnom putu (leni rute), pa je dodatnih
+ * ~15 kB za `domAnimation` prihvatljivo u zamenu za mali `m` runtime.
+ */
+export function MotionProvider({ children }: { children: ReactNode }) {
+  return <LazyMotion features={domAnimation}>{children}</LazyMotion>;
+}
+
+/** Staggered container ‚Äî deca koriste <StaggerItem /> */
 export function Stagger({ children, className, ...rest }: { children: ReactNode } & HTMLMotionProps<'div'>) {
   return (
-    <motion.div
+    <m.div
       className={className}
       variants={staggerContainer}
       initial="hidden"
@@ -59,23 +79,23 @@ export function Stagger({ children, className, ...rest }: { children: ReactNode 
       {...rest}
     >
       {children}
-    </motion.div>
+    </m.div>
   );
 }
 
 /** Item unutar Stagger containera */
 export function StaggerItem({ children, className, ...rest }: { children: ReactNode } & HTMLMotionProps<'div'>) {
   return (
-    <motion.div className={className} variants={fadeUp} {...rest}>
+    <m.div className={className} variants={fadeUp} {...rest}>
       {children}
-    </motion.div>
+    </m.div>
   );
 }
 
 /** Fade-in-up na scroll */
 export function Reveal({ children, delay = 0, className, ...rest }: { children: ReactNode; delay?: number } & HTMLMotionProps<'div'>) {
   return (
-    <motion.div
+    <m.div
       className={className}
       initial="hidden"
       whileInView="visible"
@@ -85,14 +105,14 @@ export function Reveal({ children, delay = 0, className, ...rest }: { children: 
       {...rest}
     >
       {children}
-    </motion.div>
+    </m.div>
   );
 }
 
 /** Modal / dialog pop animacija */
 export function ModalBackdrop({ children, onClick }: { children: ReactNode; onClick?: () => void }) {
   return (
-    <motion.div
+    <m.div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -100,13 +120,13 @@ export function ModalBackdrop({ children, onClick }: { children: ReactNode; onCl
       onClick={onClick}
     >
       {children}
-    </motion.div>
+    </m.div>
   );
 }
 
 export function ModalPanel({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <motion.div
+    <m.div
       className={className ?? 'ui-card-static w-full max-w-md p-6'}
       initial={{ opacity: 0, scale: 0.9, y: 20 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -115,13 +135,13 @@ export function ModalPanel({ children, className }: { children: ReactNode; class
       onClick={(e) => e.stopPropagation()}
     >
       {children}
-    </motion.div>
+    </m.div>
   );
 }
 
-export { AnimatePresence, motion };
+export { AnimatePresence, LazyMotion, domAnimation, m as motion };
 
-/** 3D tilt kartica ó pratÌ kursor i naginje se blago (gaming feel) */
+/** 3D tilt kartica ‚Äî prati kursor i naginje se blago (gaming feel) */
 export function TiltCard({ children, className, maxTilt = 8 }: { children: ReactNode; className?: string; maxTilt?: number }) {
   const ref = useRef<HTMLDivElement>(null);
   const [style, setStyle] = useState<React.CSSProperties>({});

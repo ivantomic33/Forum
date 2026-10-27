@@ -43,11 +43,14 @@ export function OAuthButtons({
   providers,
   mode,
   redirect,
+  highlight,
 }: {
   providers: string[];
   /** `link` = povezivanje sa tekućim nalogom (iz profila). */
   mode?: 'login' | 'link';
   redirect?: string;
+  /** 5.5 — poslednji korišćen provajder (dobija naglasak „prošli put ovako“). */
+  highlight?: string;
 }) {
   const available = providers.filter((provider) => PROVIDERS[provider]);
   if (!available.length) return null;
@@ -58,18 +61,19 @@ export function OAuthButtons({
         <span>ili {mode === 'link' ? 'poveži' : 'nastavi'} preko</span>
       </div>
       <div className="auth-oauth-grid">
-        {available.map((provider) => {
+        {available.map((provider, index) => {
           const meta = PROVIDERS[provider];
           return (
             <a
               key={provider}
-              className="auth-oauth-btn"
+              className={`auth-oauth-btn ${highlight === provider ? 'is-last-used' : ''}`}
               href={api.auth.oauthStartUrl(provider, { mode, redirect })}
-              style={{ '--oauth-accent': meta.accent } as CSSProperties}
-              aria-label={`${mode === 'link' ? 'Poveži' : 'Prijavi se preko'} ${meta.label}`}
+              style={{ '--oauth-accent': meta.accent, '--oauth-i': index } as CSSProperties}
+              aria-label={`${mode === 'link' ? 'Poveži' : 'Prijavi se preko'} ${meta.label}${highlight === provider ? ' (poslednji put korišćeno)' : ''}`}
             >
               {meta.icon}
               <span>{meta.label}</span>
+              {highlight === provider && <em className="auth-oauth-last">prošli put</em>}
             </a>
           );
         })}

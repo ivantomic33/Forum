@@ -110,7 +110,7 @@ describe.skipIf(db.kind !== 'memory')('Integracija — auth cookie flow', () => 
     await request(app).get('/api/auth/me').expect(401);
   });
 
-  it('refresh: bez cookie-ja → 401 NO_SESSION; bez CSRF → 403; sa CSRF → 200 i nova rotirana cookie', async () => {
+  it('refresh: bez cookie-ja → 401 NO_SESSION; sa CSRF → 200 i nova rotirana cookie', async () => {
     const noSession = await request(app).post('/api/auth/refresh').send({});
     expect(noSession.status).toBe(401);
     expect(noSession.body.code).toBe('NO_SESSION');
@@ -119,10 +119,6 @@ describe.skipIf(db.kind !== 'memory')('Integracija — auth cookie flow', () => 
     const refreshPair = registeredRefresh;
     expect(refreshPair).toContain('nx_rt=');
     const csrfPair = cookie(registeredResponse, 'nx_csrf');
-
-    const withoutCsrf = await request(app).post('/api/auth/refresh').set('Cookie', refreshPair).send({});
-    expect(withoutCsrf.status).toBe(403);
-    expect(withoutCsrf.body.code).toBe('CSRF_FAILED');
 
     const withCsrf = await request(app)
       .post('/api/auth/refresh')
@@ -133,6 +129,43 @@ describe.skipIf(db.kind !== 'memory')('Integracija — auth cookie flow', () => 
     expect(withCsrf.body.user?.email).toBe(email);
     // Rotacija: novi refresh token se razlikuje od poslatog.
     expect(cookie(withCsrf, 'nx_rt')).not.toBe(refreshPair);
+  });
+
+  /**
+   * CSRF se traži samo kada zahtev nosi ACCESS cookie (`Path=/`, dakle prava
+   * sesija). Refresh cookie ide isključivo na `/api/auth`: klijent ga može
+   * imati dok je `nx_at` već istekao/obrisan i tada mora da može da obnovi
+   * sesiju. Zahtev sa access cookie-jem i DALJE mora da pošalje token.
+   */
+  it('refresh: samo refresh cookie (bez nx_at) ne traži CSRF; sa nx_at bez tokena → 403 CSRF_FAILED', async () => {
+    // Prethodni test je rotirao refresh token, pa se pravi SVEŽA prijava —
+    // inače bi ovaj test padao na 401 (mrtav nx_rt), a ne na CSRF-u.
+    const fresh = await request(app)
+      .post('/api/auth/login')
+      .send({ email, password: 'TestLozinka123!' })
+      .expect(200);
+
+    const refreshPair = cookie(fresh, 'nx_rt');
+    const csrfPair = cookie(fresh, 'nx_csrf');
+    const freshCsrf = fresh.body.csrfToken as string;
+    expect(refreshPair).toContain('nx_rt=');
+
+    // Access cookie je prisutan, token NIJE poslat → double-submit odbija.
+    const accessPair = cookie(registeredResponse, 'nx_at');
+    const blocked = await request(app)
+      .post('/api/auth/refresh')
+      .set('Cookie', `${accessPair}; ${refreshPair}; ${csrfPair}`)
+      .send({});
+    expect(blocked.status).toBe(403);
+    expect(blocked.body.code).toBe('CSRF_FAILED');
+
+    // Isti zahtev sa tokenom prolazi.
+    const ok = await request(app)
+      .post('/api/auth/refresh')
+      .set('Cookie', `${accessPair}; ${refreshPair}; ${csrfPair}`)
+      .set('x-csrf-token', freshCsrf)
+      .send({});
+    expect(ok.status).toBe(200);
   });
 });
 

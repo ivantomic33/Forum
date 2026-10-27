@@ -1,0 +1,775 @@
+<!doctype html>
+<html lang="sr">
+<head>
+  <meta charset="utf-8" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <title>NEXUS 3.0 — OBSIDIAN VIOLET (analiza stanja 3.0.0)</title>
+  <style>
+    :root {
+      --void: #050408;
+      --obsidian: #0B0917;
+      --ink: #121026;
+      --navy: #171A38;
+      --navy4: #1E2350;
+      --navy5: #2A2E66;
+      --violet: #8B5CF6;
+      --violet-l: #A78BFA;
+      --violet-s: #7C3AED;
+      --royal: #3B4BFF;
+      --cyan: #38BDF8;
+      --amber: #F5C451;
+      --rose: #FB7185;
+      --paper: #F1EFFA;
+      --mist: #B6B2D0;
+      --ash: #918CB4;
+      --dust: #7B7699;
+      --hair: #262243;
+      --hair2: #363060;
+      --sw: #8B5CF6;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+
+    body {
+      background: var(--void);
+      color: var(--paper);
+      font-family: "Manrope", "Segoe UI", system-ui, -apple-system, sans-serif;
+      font-size: 10.2pt;
+      line-height: 1.55;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    @page { size: A4; margin: 16mm 14mm 14mm; }
+
+    p { margin: 0 0 3.4mm; color: var(--mist); }
+    strong { color: var(--paper); }
+    em { color: var(--violet-l); font-style: normal; }
+    code {
+      font-family: "Cascadia Mono", Consolas, monospace;
+      font-size: 0.9em;
+      color: var(--violet-l);
+      background: rgba(139, 92, 246, .1);
+      border-radius: 1mm;
+      padding: 0.4mm 1.2mm;
+    }
+  <style>
+    /* ============================================================
+       KOMPONENTE (ekran + štampa)
+       ============================================================ */
+    section { break-before: page; }
+    section.first { break-before: auto; }
+    section.cont { break-before: auto; margin-top: 6mm; }
+
+    h1, h2, h3, h4 { margin: 0; color: var(--paper); letter-spacing: -0.01em; }
+    h2 { font-size: 19pt; font-weight: 800; line-height: 1.15; margin: 0 0 4mm; }
+    h2 .num { color: var(--violet); margin-right: 2.5mm; }
+    h3 { font-size: 11.4pt; font-weight: 700; color: var(--violet-l); margin: 6mm 0 2.4mm; break-after: avoid; }
+    h4 { font-size: 10pt; font-weight: 700; margin: 4mm 0 1.5mm; }
+
+    .eyebrow {
+      font-size: 7.6pt; letter-spacing: .16em; text-transform: uppercase;
+      color: var(--violet-l); font-weight: 700; margin-bottom: 1.5mm;
+    }
+    .muted { color: var(--dust); }
+    .small { font-size: 8.6pt; }
+    .caption { font-size: 8.2pt; color: var(--dust); margin: 1.6mm 0 0; }
+
+    ul { margin: 0 0 3.4mm; padding-left: 5mm; }
+    li { margin-bottom: 1.4mm; color: var(--mist); }
+    li::marker { color: var(--violet); }
+
+    table { width: 100%; border-collapse: collapse; font-size: 8.6pt; margin: 0 0 4mm; }
+    th {
+      text-align: left; font-size: 7.2pt; letter-spacing: .1em; text-transform: uppercase;
+      color: var(--violet-l); padding: 2mm; border-bottom: 1px solid var(--hair2); font-weight: 700;
+    }
+    td { padding: 2.1mm 2mm; border-bottom: 1px solid var(--hair); color: var(--mist); vertical-align: top; }
+    td strong { color: var(--paper); }
+    .ok { color: #6EE7B7; font-weight: 700; }
+    .warn { color: var(--amber); font-weight: 700; }
+    .bad { color: var(--rose); font-weight: 700; }
+
+    /* --- swatch mreža --- */
+    .sg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3mm; margin: 0 0 5mm; }
+    .sg .sw {
+      display: block; padding: 2.2mm 2.6mm; background: var(--ink);
+      border: 1px solid var(--hair); border-left: 3px solid var(--c, var(--violet));
+      border-radius: 0 2mm 2mm 0; break-inside: avoid;
+    }
+    .sg .chip { display: block; height: 5mm; border-radius: 1mm; margin-bottom: 2mm; background: var(--c); border: 1px solid rgba(255,255,255,.1); }
+    .sg .nm { display: block; font-size: 9pt; font-weight: 700; color: var(--paper); }
+    .sg .hx { display: block; font-family: "Cascadia Mono", Consolas, monospace; font-size: 7.6pt; color: var(--violet-l); margin-top: 0.8mm; }
+    .sg .us { display: block; font-size: 7.4pt; color: var(--ash); line-height: 1.35; margin-top: 1.2mm; }
+
+    /* --- ram za snimak --- */
+    .shot { border: 1px solid var(--hair); border-radius: 3mm; overflow: hidden; background: #000; break-inside: avoid; }
+    .shot .bar { display: flex; align-items: center; gap: 2mm; padding: 2mm 3mm; background: var(--obsidian); border-bottom: 1px solid var(--hair); }
+    .shot .dot { width: 2.4mm; height: 2.4mm; border-radius: 50%; background: var(--navy5); }
+    .shot .url { font-family: "Cascadia Mono", Consolas, monospace; font-size: 7.4pt; color: var(--ash); margin-left: 2mm; }
+    .shot img { display: block; width: 100%; height: auto; }
+
+    /* --- kartice / pozivi / code --- */
+    .card { background: var(--ink); border: 1px solid var(--hair); border-radius: 3mm; padding: 4mm 4.5mm; break-inside: avoid; }
+    .card.violet { border-left: 3px solid var(--violet); margin-bottom: 5mm; }
+    .card.amber { border-left: 3px solid var(--amber); }
+    .callout {
+      margin: 5mm 0; padding: 4.5mm 5mm; border-radius: 3mm; break-inside: avoid;
+      background: linear-gradient(140deg, rgba(139,92,246,.14), var(--ink) 65%);
+      border: 1px solid rgba(139, 92, 246, .35);
+    }
+    .callout p { margin: 1.5mm 0 0; color: var(--mist); }
+    .kpi { font-size: 17pt; font-weight: 800; color: var(--paper); line-height: 1; }
+    .kpi-label { font-size: 8pt; color: var(--ash); margin-top: 1.5mm; }
+    pre {
+      margin: 0 0 4mm; padding: 3.5mm 4mm; border-radius: 2.5mm; overflow: hidden;
+      white-space: pre-wrap; word-break: break-word;
+      background: var(--obsidian); border: 1px solid var(--hair); break-inside: avoid;
+    }
+    pre code { color: #CFC6FF; background: none; padding: 0; font-size: 8pt; line-height: 1.5; }
+    pre .c { color: #6F6A93; }
+    pre, pre code, .shot .url, .sg .hx { font-feature-settings: "liga" 0, "clig" 0; }
+
+    .duo { display: grid; grid-template-columns: 1fr 1fr; gap: 4mm; }
+    .dodont { display: grid; grid-template-columns: 1fr 1fr; gap: 4mm; }
+    .dodont > div { border-radius: 3mm; padding: 3.5mm 4mm; border: 1px solid var(--hair); break-inside: avoid; }
+    .dodont .yes { border-color: rgba(110,231,183,.35); background: rgba(16,185,129,.06); }
+    .dodont .no { border-color: rgba(251,113,133,.35); background: rgba(251,113,133,.06); }
+    .dodont .yes h4 { color: #6EE7B7; }
+    .dodont .no h4 { color: var(--rose); }
+
+    /* --- korice --- */
+    .cover {
+      position: relative; height: 262mm; padding: 18mm 16mm; overflow: hidden; border-radius: 4mm;
+      background:
+        radial-gradient(ellipse 70% 55% at 12% 6%, rgba(139,92,246,.32), transparent 62%),
+        radial-gradient(ellipse 65% 50% at 92% 96%, rgba(59,75,255,.26), transparent 62%),
+        linear-gradient(170deg, #0B0917 0%, #050408 58%, #050408 100%);
+      border: 1px solid #1C1930;
+    }
+    .cover::after {
+      content: ""; position: absolute; inset: 0; pointer-events: none;
+      background-image:
+        linear-gradient(rgba(167,139,250,.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(167,139,250,.05) 1px, transparent 1px);
+      background-size: 56px 56px;
+      -webkit-mask-image: radial-gradient(ellipse 75% 65% at 50% 30%, #000 0%, transparent 85%);
+      mask-image: radial-gradient(ellipse 75% 65% at 50% 30%, #000 0%, transparent 85%);
+    }
+    .cover > * { position: relative; z-index: 1; }
+    .cover .top { display: flex; align-items: center; gap: 5mm; }
+    .logo {
+      width: 13mm; height: 13mm; border-radius: 3.4mm; display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 18pt; color: #fff;
+      background: linear-gradient(135deg, #8B5CF6 0%, #3B4BFF 100%);
+      box-shadow: 0 0 0 1px rgba(167,139,250,.5), 0 14px 40px -12px rgba(124,58,237,.85);
+    }
+    .brand-line { font-weight: 700; font-size: 10.5pt; letter-spacing: .07em; color: var(--paper); }
+    .cover h1 { font-size: 44pt; line-height: 1.0; font-weight: 800; letter-spacing: -0.035em; margin-top: 42mm; color: var(--paper); }
+    .cover h1 .hi {
+      background: linear-gradient(120deg, #A78BFA, #38BDF8);
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    .cover .sub { font-size: 12.5pt; color: var(--mist); margin-top: 6mm; max-width: 128mm; line-height: 1.5; }
+    .chips { display: flex; flex-wrap: wrap; gap: 3mm; margin-top: 12mm; }
+    .chip-pill { border: 1px solid var(--hair2); border-radius: 99px; padding: 1.5mm 4mm; font-size: 8.4pt; color: var(--mist); }
+    .chip-pill.v { border-color: rgba(139,92,246,.6); color: var(--violet-l); }
+    .chip-pill.b { border-color: rgba(59,75,255,.6); color: #9AA6FF; }
+    .cover .foot {
+      position: absolute; left: 16mm; right: 16mm; bottom: 14mm; z-index: 2;
+      display: flex; justify-content: space-between; align-items: flex-end;
+      border-top: 1px solid var(--hair); padding-top: 4mm;
+    }
+    .foot-title { font-size: 10.5pt; font-weight: 700; margin-top: 1.2mm; color: var(--paper); }
+
+    /* --- slojevi animacije --- */
+    .layer { display: grid; grid-template-columns: 34mm 1fr; gap: 4mm; align-items: center; margin-bottom: 4mm; break-inside: avoid; }
+    .layer .pane { height: 14mm; border-radius: 2mm; border: 1px solid var(--hair); position: relative; overflow: hidden; }
+    .layer b { color: var(--paper); }
+    .layer .t { font-size: 9.2pt; color: var(--ash); line-height: 1.45; }
+
+    /* ============================================================
+       ŠTAMPA — dokument za čitanje: bela podloga, tamni tekst
+       ============================================================ */
+    @media print {
+      body { background: #FFFFFF; color: #121026; }
+      h1, h2, h4, strong, td strong, .kpi, .foot-title, .brand-line { color: #0B0917 !important; }
+      h2 .num, h3, .eyebrow, th { color: #6D28D9 !important; }
+      p, li, td, .small, .caption, .sg .us, .layer .t { color: #2C2A40 !important; }
+
+      th { border-bottom-color: #B9B4D0 !important; }
+      td { border-bottom-color: #DCD8EA !important; }
+      code { color: #5B21B6 !important; background: #F1EDFB !important; }
+
+      .card { background: #F6F4FC !important; border-color: #DCD8EA !important; }
+      .card.violet { border-left-color: #8B5CF6 !important; }
+      .card.amber { border-left-color: #B45309 !important; }
+      .kpi { font-size: 14pt !important; }
+      .kpi-label { color: #4A4568 !important; }
+
+      .callout { background: #F3EFFE !important; border-color: #C4B5FD !important; }
+      pre { background: #F6F4FC !important; border-color: #DCD8EA !important; }
+      pre code { color: #3B2E63 !important; background: transparent !important; }
+      pre { font-size: 7.4pt !important; padding: 3mm 3.2mm !important; }
+      pre code { font-size: 7.4pt !important; line-height: 1.42 !important; }
+      pre .c { color: #7A7396 !important; }
+
+      .dodont .yes { background: #F0FDF7 !important; border-color: #A7F3D0 !important; }
+      .dodont .no { background: #FFF1F3 !important; border-color: #FECDD3 !important; }
+      .dodont .yes h4 { color: #047857 !important; }
+      .dodont .no h4 { color: #BE123C !important; }
+
+      .sg .sw { background: #F6F4FC !important; border-color: #DCD8EA !important; }
+      .sg .nm { color: #0B0917 !important; }
+      .sg .hx { color: #5B21B6 !important; }
+      .sg .us { color: #3A3752 !important; }
+
+      .caption { color: #55516B !important; }
+      /* slojevi animacije: u štampi svetla kutija, tekst tamni */
+      .layer .t, .layer b { color: #2C2A40 !important; }
+      .layer b { color: #0B0917 !important; }
+      .layer .pane { height: 9mm; border-color: #DCD8EA !important; }
+      .layer .pane[style*="background:#050408"], .layer .pane[style*="background-color:#050408"] { background-color: #EDE9F9 !important; background-image: none !important; }
+      .layer .pane span { display: none !important; }
+      .shot { border-color: #DCD8EA !important; }
+
+      /* sekcija 3b — novi snimci su na crnoj podlozi, okvir ostaje svetao */
+      .after-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4mm; }
+      .after-grid .shot { break-inside: avoid; }
+      .after-grid img { width: 100%; display: block; }
+
+      /* sekcije: 1 i 3 i 5 počinju na novoj strani; 2 i 2b se nastavljaju */
+      section { break-before: page !important; }
+      section.break { break-before: page !important; }
+      h2 { break-before: auto; }
+      section.cont { break-before: auto !important; }
+      section.first, section.cont { break-before: auto !important; }
+
+      /* korice uvek ostaju tamne, cak i u PDF-u */
+      .cover, .cover .top, .cover h1, .cover h1 .hi, .cover .sub, .cover .chips, .cover .foot,
+      .cover .brand-line, .cover .foot-title, .cover small, .cover .small {
+        color: #F1EFFA !important;
+      }
+      .cover h1 .hi {
+        background: linear-gradient(120deg, #A78BFA, #38BDF8) !important;
+        -webkit-background-clip: text !important;
+        background-clip: text !important;
+        color: transparent !important;
+      }
+      .cover .sub { color: #B6B2D0 !important; }
+      .cover .eyebrow { color: #C4B5FD !important; }
+      .cover .chip-pill { color: #E4E0F5 !important; border-color: #363060 !important; }
+      .cover .muted { color: #B6B2D0 !important; }
+
+      .sg, .shot, .card, .callout, pre, tr, .layer { break-inside: avoid; }
+      h2, h3, h4 { break-after: avoid; }
+      table { break-inside: auto; }
+    }
+  </style>
+<body>
+
+<!-- ============================================================ KORICE -->
+<section class="cover first">
+  <div class="top">
+    <div class="logo">N</div>
+    <div>
+      <div class="eyebrow">NEXUS · dizajn sistem</div>
+      <div class="brand-line">GAMING PORTAL &amp; FORUM</div>
+    </div>
+  </div>
+
+  <h1>OBSIDIAN<br /><span class="hi">VIOLET</span></h1>
+  <p class="sub">Novi vizuelni identitet za NEXUS: crna baza, teget dubina i ljubičasta kao jedina boja akcije - sa sitnim, tihim animacijama u pozadini.</p>
+
+  <div class="chips">
+    <span class="chip-pill v">crna · #050408</span>
+    <span class="chip-pill b">teget · #171A38</span>
+    <span class="chip-pill v">ljubičasta · #8B5CF6</span>
+    <span class="chip-pill">1920 × 1080 snimci</span>
+  </div>
+
+  <div class="foot">
+    <div>
+      <div class="eyebrow">Dokument</div>
+      <div class="foot-title">Dizajn analiza i paleta boja 3.0</div>
+      <div class="small muted" id="doc-date"></div>
+    </div>
+    <div style="text-align:right;">
+      <div class="eyebrow">Sadržaj</div>
+      <div class="foot-title">Analiza · Paleta · Animacije · Primena</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ 1. ANALIZA -->
+<section>
+  <div class="eyebrow">01 - analiza postojećeg stanja</div>
+  <h2><span class="num">1.</span>Šta NEXUS sada jeste</h2>
+
+  <p>Analiza je rađena na <strong>stvarnom kodu</strong> (<code>src/styles/tokens.css</code>, <code>src/styles/components/*.css</code>, <code>src/pages/*.tsx</code>, <code>src/components/**</code>) i na <strong>snimcima ekrana 1920×1080</strong> iz <code>docs/dizajn-3.0/</code> (svih 6 strana je u prilogu, u punoj rezoluciji). Snimci su napravljeni sa pravim podacima - in-memory API + seed - ne sa praznim skeletonima.</p>
+
+  <div class="sg">
+    <div class="card"><div class="kpi">37</div><div class="kpi-label">stranica i ruta (portal, forum, popusti, profil, admin, auth)</div></div>
+    <div class="card"><div class="kpi">1</div><div class="kpi-label">izvor boja - <code>tokens.css</code>; ostalo sme samo <code>var(--color-*)</code></div></div>
+    <div class="card"><div class="kpi">1920×1080</div><div class="kpi-label">rezolucija svih snimaka u ovom dokumentu</div></div>
+  </div>
+
+  <h3>1.1 Trenutna paleta ("Neon Editorial" 3.0.0)</h3>
+  <div style="display:flex; border-radius:3mm; overflow:hidden; border:1px solid var(--hair); margin-bottom:2mm;">
+    <div style="flex:1; height:18mm; display:flex; align-items:flex-end; justify-content:center; padding-bottom:1.5mm; font-family:Consolas,monospace; font-size:7pt; background:#0d0a1a; color:#918CB4;">#0d0a1a</div>
+    <div style="flex:1; height:18mm; display:flex; align-items:flex-end; justify-content:center; padding-bottom:1.5mm; font-family:Consolas,monospace; font-size:7pt; background:#15112b; color:#918CB4;">#15112b</div>
+    <div style="flex:1; height:18mm; display:flex; align-items:flex-end; justify-content:center; padding-bottom:1.5mm; font-family:Consolas,monospace; font-size:7pt; background:#1e1940; color:#918CB4;">#1e1940</div>
+    <div style="flex:1; height:18mm; display:flex; align-items:flex-end; justify-content:center; padding-bottom:1.5mm; font-family:Consolas,monospace; font-size:7pt; background:#2a2354; color:#B6B2D0;">#2a2354</div>
+    <div style="flex:1; height:18mm; display:flex; align-items:flex-end; justify-content:center; padding-bottom:1.5mm; font-family:Consolas,monospace; font-size:7pt; background:#362c6b; color:#F1EFFA;">#362c6b</div>
+    <div style="flex:1; height:18mm; display:flex; align-items:flex-end; justify-content:center; padding-bottom:1.5mm; font-family:Consolas,monospace; font-size:7pt; background:#8b5cf6; color:#fff;">#8b5cf6</div>
+    <div style="flex:1; height:18mm; display:flex; align-items:flex-end; justify-content:center; padding-bottom:1.5mm; font-family:Consolas,monospace; font-size:7pt; background:#22d3ee; color:#0B0917;">#22d3ee</div>
+    <div style="flex:1; height:18mm; display:flex; align-items:flex-end; justify-content:center; padding-bottom:1.5mm; font-family:Consolas,monospace; font-size:7pt; background:#fbbf24; color:#1a1203;">#fbbf24</div>
+    <div style="flex:1; height:18mm; display:flex; align-items:flex-end; justify-content:center; padding-bottom:1.5mm; font-family:Consolas,monospace; font-size:7pt; background:#34d399; color:#05130d;">#34d399</div>
+    <div style="flex:1; height:18mm; display:flex; align-items:flex-end; justify-content:center; padding-bottom:1.5mm; font-family:Consolas,monospace; font-size:7pt; background:#fb7185; color:#1a060a;">#fb7185</div>
+  </div>
+  <p class="caption">Površine su topli tamno-indigo tonovi (ne crni), a akcenata ima pet - svaki sa svojom zonom.</p>
+
+  <table>
+    <tr><th style="width:30mm;">Sloj</th><th>Nalaz</th><th style="width:24mm;">Ocena</th></tr>
+    <tr><td><strong>Pozadina</strong></td><td>Tamno-indigo <code>#0d0a1a</code> + tri radijalna sloja (violet, cyan, amber) i 5% mreža. Dubina postoji, ali baza nije <em>crna</em> kako brend traži - deluje ljubičasto-sivo.</td><td class="warn">Delimično</td></tr>
+    <tr><td><strong>Površine</strong></td><td>5 stepeni iste porodice; kartica i pozadina su vrlo blizu, pa se granice čitaju samo po 1px ivici.</td><td class="warn">Delimično</td></tr>
+    <tr><td><strong>Akcenti</strong></td><td>Violet (akcija), cyan (forum), amber (popusti), emerald (zajednica), rose (opasno). Pravilo "jedna akcija po ekranu" se poštuje.</td><td class="ok">Dobro</td></tr>
+    <tr><td><strong>Teget</strong></td><td>U paleti ga praktično <strong>nema</strong> - najbliže je <code>#2a2354</code>, ali to je ljubičasti, ne plavo-teget ton.</td><td class="bad">Nedostaje</td></tr>
+    <tr><td><strong>Animacije</strong></td><td>Samo ticker i hover transformi. Pozadina je statična: mreža + grain, bez kretanja. Traženi "živ" osećaj crne baze ne postoji.</td><td class="bad">Nedostaje</td></tr>
+    <tr><td><strong>Tipografija</strong></td><td>Inter Tight (naslovi) + Inter (tekst) + JetBrains Mono (cene/brojevi). Skala je definisana i strogo poštovana.</td><td class="ok">Dobro</td></tr>
+  </table>
+
+  <h3>1.2 Snimak 1920×1080 - početna</h3>
+  <div class="shot">
+    <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="url">localhost:5199/ · 1920×1080</span></div>
+    <img src="01-pocetna-1920x1080.png" alt="Početna strana - trenutno stanje" />
+  </div>
+  <p class="caption">Slika 1 - Početna: hero pojas, "Top priče", "Forum u fokusu" i rail sa popustima.</p>
+</section>
+
+<!-- ============================================================ 1b. PO STRANAMA -->
+<section>
+  <div class="eyebrow">01 - analiza (nastavak)</div>
+  <h2>Strana po strana: gde dizajn radi, a gde ne</h2>
+  <p>Isti snimci 1920×1080 primenjeni na ostale ekrane pokazuju gde hijerarhija radi, a gde se boje i površine stapaju.</p>
+
+  <div class="duo">
+    <div>
+      <div class="shot">
+        <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="url">/forum</span></div>
+        <img src="02-forum-1920x1080.png" alt="Forum" />
+      </div>
+      <p class="caption">Slika 2 - Forum: dobra hijerarhija, ali kategorije i teme dele skoro istu površinu.</p>
+    </div>
+    <div>
+      <div class="shot">
+        <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="url">/deals</span></div>
+        <img src="03-popusti-1920x1080.png" alt="Popusti" />
+      </div>
+      <p class="caption">Slika 3 - Popusti: najtoplija strana portala (amber cena), ali kartice su iste težine kao vesti.</p>
+    </div>
+  </div>
+
+  <div class="duo" style="margin-top:4mm;">
+    <div>
+      <div class="shot">
+        <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="url">/leaderboard</span></div>
+        <img src="04-rang-lista-1920x1080.png" alt="Rang lista" />
+      </div>
+      <p class="caption">Slika 4 - Rang lista: bez "svečanosti" - top 3 se ne izdvaja dovoljno.</p>
+    </div>
+    <div>
+      <div class="shot">
+        <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="url">/login</span></div>
+        <img src="06-prijava-1920x1080.png" alt="Prijava" />
+      </div>
+      <p class="caption">Slika 5 - Prijava: čista forma, ali prvi utisak nema boju brenda.</p>
+    </div>
+  </div>
+
+  <div class="shot" style="margin-top:4mm;">
+    <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="url">/article/gta-6-odlozeno-na-jesen-2026</span></div>
+    <img src="05-clanak-1920x1080.png" alt="Članak" />
+  </div>
+  <p class="caption">Slika 6 - Članak: najbolji deo sistema; tekst ima ritam, ali hero i telo koriste istu sivo-ljubičastu bazu.</p>
+
+  <h3>1.3 Nalaz po stranici</h3>
+  <table>
+    <tr><th style="width:28mm;">Strana</th><th>Problem</th><th style="width:52mm;">Rešenje u 3.0</th></tr>
+    <tr><td><strong>Početna</strong></td><td>Hero, kartice i lista su slične težine; sitni element (ticker) koristi isti violet kao CTA.</td><td>Hero na <em>void crnoj</em>, kartice na ink, tanka ljubičasta nit na sekcijama, ticker u tegetu.</td></tr>
+    <tr><td><strong>Forum</strong></td><td>Kategorije, teme i meta padaju na istu površinu; cyan se jedva vidi.</td><td>Kategorije u <em>teget</em> panelima; cyan ostaje samo za brojeve odgovora i live.</td></tr>
+    <tr><td><strong>Popusti</strong></td><td>Amber je dobar, ali cena nije dovoljno dominantna.</td><td>Cena mono 32px u amberu, kartica dobija amber gornju nit 2px.</td></tr>
+    <tr><td><strong>Rang lista</strong></td><td>Top 3 bez vizuelnog statusa.</td><td>Prestige ring (ljubičasto-royal) samo za #1; #2/#3 samo teget ivica.</td></tr>
+    <tr><td><strong>Prijava</strong></td><td>Forma bez brend konteksta.</td><td>Levi panel sa <code>--gradient-brand</code> (violet-royal) i logom.</td></tr>
+  </table>
+</section>
+
+<!-- ============================================================ 2. PALETA -->
+<section>
+  <div class="eyebrow">02 - nova paleta</div>
+  <h2><span class="num">2.</span>OBSIDIAN VIOLET - crna, teget, ljubičasta</h2>
+  <p>Tri boje brenda + dve statusne. Princip: <strong>crna je platno, teget je dubina, ljubičasta je akcija</strong>. Nijedna boja se ne koristi "dekorativno" - svaka nosi ulogu.</p>
+
+  <div class="card violet">
+    <span class="eyebrow">Pravilo broj 1</span>
+    <p style="margin:1.5mm 0 0;"><strong>Jedna ljubičasta akcija po ekranu.</strong> Ako na ekranu postoje dva puna ljubičasta dugmeta, drugo mora postati <em>ghost</em> ili <em>secondary</em>. Teget nikad nije boja dugmeta - teget je površina.</p>
+  </div>
+
+  <h3>2.1 Površine - crna baza, teget stepenice</h3>
+  <div class="sg">
+    <div class="sw" style="--c:#050408"><span class="chip"></span><span class="nm">Void Black</span><span class="hx">#050408 / surface-0</span><span class="us">Crna baza aplikacije; na njoj se vide sitne animacije.</span></div>
+    <div class="sw" style="--c:#0B0917"><span class="chip"></span><span class="nm">Obsidian</span><span class="hx">#0B0917 / surface-1</span><span class="us">Body sloj: sekcije i "papir" portala.</span></div>
+    <div class="sw" style="--c:#121026"><span class="chip"></span><span class="nm">Ink Violet</span><span class="hx">#121026 / surface-2</span><span class="us">Default kartice, redovi foruma, paneli.</span></div>
+    <div class="sw" style="--c:#171A38"><span class="chip"></span><span class="nm">Navy Deep</span><span class="hx">#171A38 / surface-3</span><span class="us">Hover kartice, input polja - prvi pravi teget.</span></div>
+    <div class="sw" style="--c:#1E2350"><span class="chip"></span><span class="nm">Navy</span><span class="hx">#1E2350 / surface-4</span><span class="us">Aktivno stanje, tab, chip, broj badge-a.</span></div>
+    <div class="sw" style="--c:#2A2E66"><span class="chip"></span><span class="nm">Navy Light</span><span class="hx">#2A2E66 / surface-5</span><span class="us">Najsvetliji sloj - retko, za istaknute redove.</span></div>
+  </div>
+
+  <h3>2.2 Akcenti: ljubičasta akcija, royal teget zona</h3>
+  <div class="sg">
+    <div class="sw" style="--c:#8B5CF6"><span class="chip"></span><span class="nm">Ultraviolet</span><span class="hx">#8B5CF6 / primary</span><span class="us">Jedina primarna akcija, aktivni tab, akcentna nit.</span></div>
+    <div class="sw" style="--c:#A78BFA"><span class="chip"></span><span class="nm">Ultraviolet Light</span><span class="hx">#A78BFA / primary-fg</span><span class="us">Hover i ljubičasti tekst na crnom (7,2:1).</span></div>
+    <div class="sw" style="--c:#7C3AED"><span class="chip"></span><span class="nm">Violet 600</span><span class="hx">#7C3AED / primary-surface</span><span class="us">Puna površina CTA sa belim tekstom (5,7:1 - AA).</span></div>
+    <div class="sw" style="--c:#4C1D95"><span class="chip"></span><span class="nm">Violet 900</span><span class="hx">#4C1D95 / primary-deep</span><span class="us">Dubina: gradijent loga, senka, prigušeni obris.</span></div>
+    <div class="sw" style="--c:#3B4BFF"><span class="chip"></span><span class="nm">Royal Navy</span><span class="hx">#3B4BFF / navy-accent</span><span class="us">Linkovi, fokus, "info" - teget-plavi akcent brenda.</span></div>
+    <div class="sw" style="--c:#38BDF8"><span class="chip"></span><span class="nm">Teal Navy</span><span class="hx">#38BDF8 / secondary</span><span class="us">Forum, PC, live/online. Nikad glavna akcija.</span></div>
+  </div>
+
+  <h3>2.3 Statusne boje (izvan brenda, moraju ostati)</h3>
+  <div class="sg">
+    <div class="sw" style="--c:#F5C451"><span class="chip"></span><span class="nm">Signal Amber</span><span class="hx">#F5C451 / deal</span><span class="us">Cena, -%, "ističe danas". Tamni tekst na površini.</span></div>
+    <div class="sw" style="--c:#FB7185"><span class="chip"></span><span class="nm">Signal Rose</span><span class="hx">#FB7185 / danger</span><span class="us">Greška, istekao deal, ban - nikad dekoracija.</span></div>
+    <div class="sw" style="--c:#34D399"><span class="chip"></span><span class="nm">Community Green</span><span class="hx">#34D399 / success</span><span class="us">"Rešeno", verifikacija, online tačka.</span></div>
+  </div>
+
+  <h3>2.4 Ivice - da kartice ne "plivaju" u crnom</h3>
+  <div class="sg">
+    <div class="sw" style="--c:#4A4568"><span class="chip"></span><span class="nm">Hairline</span><span class="hx">#1C1930 / border-subtle</span><span class="us">1px ivica svake kartice.</span></div>
+    <div class="sw" style="--c:#4A4568"><span class="chip"></span><span class="nm">Hairline +</span><span class="hx">#262243 / border-default</span><span class="us">Inputi, segmenti, razdelne linije.</span></div>
+    <div class="sw" style="--c:#4A4568"><span class="chip"></span><span class="nm">Hairline ++</span><span class="hx">#363060 / border-strong</span><span class="us">Hover i aktivna kartica.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ 2b. TEKST / KONTRAST -->
+<section class="cont">
+  <h2>2.5 Tekst i kontrast - izmereno, ne procenjeno</h2>
+  <p>Kontrast ispod je izračunat iz hex vrednosti po WCAG 2.1 relaciji luminanse. Cilj: telo teksta najmanje 4,5:1, veliki naslovi 3:1.</p>
+
+  <table>
+    <tr><th>Par (tekst / podloga)</th><th style="width:16mm;">Odnos</th><th style="width:18mm;">AA</th><th>Gde se koristi</th></tr>
+    <tr><td>Paper #F1EFFA / surface-1 #0B0917</td><td>17,33:1</td><td class="ok">prolazi</td><td>Telo teksta, naslovi kartica</td></tr>
+    <tr><td>Mist #B6B2D0 / surface-1</td><td>9,64:1</td><td class="ok">prolazi</td><td>Excerpt, datum, vreme čitanja</td></tr>
+    <tr><td>Ash #918CB4 / surface-2 #121026</td><td>5,86:1</td><td class="ok">prolazi</td><td>Eyebrow, labele filtera, naziv prodavnice</td></tr>
+    <tr><td>Violet Light #A78BFA / surface-1</td><td>7,24:1</td><td class="ok">prolazi</td><td>Hover naslova, aktivni link, ikone</td></tr>
+    <tr><td>Teal #38BDF8 / surface-1</td><td>9,20:1</td><td class="ok">prolazi</td><td>Broj odgovora, live, forum ikone</td></tr>
+    <tr><td>Amber #F5C451 / surface-1</td><td>12,10:1</td><td class="ok">prolazi</td><td>Cena i -% popusta</td></tr>
+    <tr><td>Beli tekst / CTA #7C3AED</td><td>5,70:1</td><td class="ok">prolazi</td><td>Primarno dugme "Pročitaj"</td></tr>
+    <tr><td>Tamni #1A1203 / amber #F5C451</td><td>11,40:1</td><td class="ok">prolazi</td><td>-64% pilula, "ističe danas"</td></tr>
+    <tr><td>Rose #FB7185 / surface-1</td><td>7,32:1</td><td class="ok">prolazi</td><td>Greške, istekao deal</td></tr>
+    <tr><td>Dust #7B7699 / surface-1</td><td>4,32:1</td><td class="warn">granično</td><td>Samo placeholder i disabled - nikad telo teksta</td></tr>
+  </table>
+
+  <h3>2.6 Tokeni teksta, ivica i fokusa</h3>
+  <table>
+    <tr><th style="width:32mm;">Token</th><th style="width:22mm;">Hex</th><th>Uloga</th></tr>
+    <tr><td><strong>text-primary</strong></td><td>#F1EFFA</td><td>Naslovi i telo teksta (17,3:1 na surface-1)</td></tr>
+    <tr><td><strong>text-secondary</strong></td><td>#B6B2D0</td><td>Excerpt, meta red, opisi (9,6:1)</td></tr>
+    <tr><td><strong>text-tertiary</strong></td><td>#918CB4</td><td>Eyebrow, labele, store (5,9:1 na surface-2)</td></tr>
+    <tr><td><strong>text-muted</strong></td><td>#7B7699</td><td>Placeholder / disabled - nikad telo teksta</td></tr>
+    <tr><td><strong>border-focus</strong></td><td>#A78BFA</td><td>Jedan fokus stil: 2px + 2px offset za sve elemente</td></tr>
+  </table>
+
+  <h3>2.7 Zašto baš ove boje: tri nivoa čitanja</h3>
+  <p>Trijada crna / teget / ljubičasta radi kada svaka boja ima <strong>vlastiti</strong> posao. Ako se pomešaju, ekran ponovo postaje "sivo-ljubičast", kao u 3.0.0 paleti. Zato je uloga fiksna:</p>
+  <ul>
+    <li><strong>Crna (#050408) - tišina.</strong> 70-80% površine ekrana. Nosi prazan prostor, animacije i fotografije.</li>
+    <li><strong>Teget (#171A38 - #2A2E66) - struktura.</strong> Iznad crne, ali ispod akcije. Nosi "kutije": kartice, redove, panele, inpute. Plavi podton razdvaja teget od ljubičaste, pa oko odmah vidi šta je interfejs, a šta je akcija.</li>
+    <li><strong>Ljubičasta (#8B5CF6) - akcija.</strong> Najmanja površina na ekranu (do 10%), najveća težina. Samo ono što vodi napred: CTA, aktivni tab, naslov-hover, akcentna nit.</li>
+  </ul>
+  <p>Statusne boje (amber, rose, zelena) dolaze izvan brenda jer nose značenje koje korisnik ne sme da uči iznova. One se ne šire - amber je samo kod cene i popusta, rose samo kod greške.</p>
+
+  <h3>2.8 Šta se konkretno menja na ekranu</h3>
+  <table>
+    <tr><th style="width:32mm;">Element</th><th style="width:30mm;">Sada (3.0.0)</th><th style="width:30mm;">3.0 OBSIDIAN</th><th>Efekat</th></tr>
+    <tr><td><strong>Pozadina strane</strong></td><td>#0d0a1a, tri sjaja</td><td>#050408, dva sjaja + čestice</td><td>Ekran postaje pravo crn; sadržaj "iskače" napred, animacije se vide.</td></tr>
+    <tr><td><strong>Kartica vesti</strong></td><td>#15112b, siva ivica</td><td>#121026, ivica #1C1930</td><td>Kartica se odvaja od baze bez senke i bez svetlije sive.</td></tr>
+    <tr><td><strong>Hover reda</strong></td><td>#1e1940 (ljubičast)</td><td>#171A38 (teget)</td><td>Hover deluje "hladnije" i miri se sa ljubičastim akcentom.</td></tr>
+    <tr><td><strong>Aktivni tab</strong></td><td>violet + glow</td><td>#1E2350 + 2px violet nit</td><td>Stanje se vidi po obliku, ne samo po sjaju - bolje za slabiji vid.</td></tr>
+    <tr><td><strong>Cena u popustima</strong></td><td>amber 28px</td><td>amber 32px, mono, tabularno</td><td>Cena je najjači element kartice, kao u realnoj prodavnici.</td></tr>
+  </table>
+
+  <div class="callout">
+    <span class="eyebrow">Mali test pre primene</span>
+    <p>Smanji snimak ekrana na 30% i zažmiri: ako vidiš <em>jednu</em> ljubičastu tačku po ekranu - paleta radi. Ako vidiš više njih, negde je ljubičasta postala dekoracija i tu treba teget.</p>
+  </div>
+</section>
+
+<!-- ============================================================ 2c. PRIMENA / SVETLA -->
+<section class="cont">
+  <h2>2.9 Primena po ekranu - gde je koja boja</h2>
+  <table>
+    <tr><th style="width:26mm;">Ekran</th><th style="width:30mm;">Baza</th><th>Gde je akcija, gde je zona</th></tr>
+    <tr><td><strong>Početna</strong></td><td>#050408 + teget kartice</td><td>Hero naslov na crnom, "Pročitaj" ljubičasto; kartice ink sa 2px ljubičastom niti; forum sekcija u teget panelu; cene u amberu.</td></tr>
+    <tr><td><strong>Forum</strong></td><td>#0B0917</td><td>Kategorije u teget panelima (#171A38), broj odgovora cyan; ljubičasto samo za "Nova tema".</td></tr>
+    <tr><td><strong>Popusti</strong></td><td>#050408</td><td>Kartice na ink sloju; cena 32px amber sa tamnim tekstom; aktivni filter tab #1E2350 (ne ljubičast).</td></tr>
+    <tr><td><strong>Članak</strong></td><td>#0B0917</td><td>Tekst na mirnom sloju (bez čestica iza teksta); meta u tegetu; "Sačuvaj" ghost dugme.</td></tr>
+    <tr><td><strong>Rang lista</strong></td><td>#050408</td><td>#1 dobija prestige ring (#8B5CF6 - #3B4BFF), #2/#3 samo teget okvir - status bez dodatnih boja.</td></tr>
+    <tr><td><strong>Prijava</strong></td><td>#050408</td><td>Levi panel sa brand gradijentom i česticama; forma na ink sloju; ljubičasto dugme "Prijavi se".</td></tr>
+    <tr><td><strong>Profil</strong></td><td>#0B0917</td><td>XP traka ljubičasta (napredak = akcija), nivo chip teget, brand boje platformi ostaju autentične.</td></tr>
+    <tr><td><strong>Admin</strong></td><td>#0B0917</td><td>Tabele neutralne; upozorenja amber, opasne akcije rose; ljubičasto samo za primarno "Sačuvaj".</td></tr>
+  </table>
+
+  <h3>2.10 Svetla tema (light) - ista struktura, plavi teget</h3>
+  <p>Portal ima i svetli režim (<code>data-theme="light"</code>). Paleta ostaje prepoznatljiva: površine su hladno-beli slojevi sa ljubičastim podtonom, teget postaje srednji ton, a ljubičasta tamnija da bi tekst ostao čitljiv.</p>
+  <div class="sg">
+    <div class="sw" style="--c:#FBF9FF"><span class="chip"></span><span class="nm">Paper White</span><span class="hx">#FBF9FF / surface-0</span><span class="us">Pozadina svetle teme.</span></div>
+    <div class="sw" style="--c:#FFFFFF"><span class="chip"></span><span class="nm">White</span><span class="hx">#FFFFFF / surface-1</span><span class="us">Kartice na svetlom.</span></div>
+    <div class="sw" style="--c:#EFEBFA"><span class="chip"></span><span class="nm">Lilac Mist</span><span class="hx">#EFEBFA / surface-2</span><span class="us">Hover i unutrašnjost na svetlom.</span></div>
+    <div class="sw" style="--c:#6D28D9"><span class="chip"></span><span class="nm">Violet 700</span><span class="hx">#6D28D9 / primary</span><span class="us">Akcija u svetloj temi (6,4:1 sa belim).</span></div>
+    <div class="sw" style="--c:#1E2350"><span class="chip"></span><span class="nm">Navy Text</span><span class="hx">#1E2350 / text-primary</span><span class="us">Telo teksta na belom (14,2:1).</span></div>
+    <div class="sw" style="--c:#B45309"><span class="chip"></span><span class="nm">Amber Deep</span><span class="hx">#B45309 / deal</span><span class="us">Cena na svetlom (4,7:1).</span></div>
+  </div>
+
+  <p class="small"><strong>Ukupno:</strong> 9 površina + 6 akcenata + 3 statusa + 4 tekst + 4 ivice tokena - dovoljno za ceo portal, a svaki token ima tačno jednu ulogu. Sve vrednosti su popisane u <code>scripts/design/palette.mjs</code>, pa se primena svodi na prepis u <code>tokens.css</code> i <code>theme.css</code>.</p>
+</section>
+
+<!-- ============================================================ 3. ANIMACIJE -->
+<section>
+  <h2><span class="num">3.</span>Crna baza koja "diše"</h2>
+  <p>Cilj nije efekat, nego <strong>život</strong>: pozadina se jedva kreće - dovoljno da ekran ne izgleda kao statična slika, a da tekst ostane miran za čitanje. Sve animacije su <em>ispod</em> sadržaja i isključuju se na <code>prefers-reduced-motion</code>.</p>
+
+  <h3>3.1 Pet slojeva pozadine (od najnižeg ka sadržaju)</h3>
+
+  <div class="layer">
+    <div class="pane" style="background:linear-gradient(170deg,#050408,#0B0917);"></div>
+    <div><b>L1 - Void baza.</b> <span class="t">Ravna <code>#050408</code>. Bez nje sve ostalo izgleda prljavo.</span></div>
+  </div>
+  <div class="layer">
+    <div class="pane" style="background:radial-gradient(ellipse 80% 70% at 15% 10%, rgba(139,92,246,.34), transparent 65%), radial-gradient(ellipse 70% 60% at 88% 88%, rgba(59,75,255,.26), transparent 65%), #050408;"></div>
+    <div><b>L2 - Dva ambijentalna sjaja.</b> <span class="t">Ljubičasti gore-lijevo, teget dole-desno. Animacija <code>ambient-drift</code> 26 s: pomeranje do 4%, skala do 1.06, opacity 0,8-1.</span></div>
+  </div>
+  <div class="layer">
+    <div class="pane" style="background-color:#050408; background-image:linear-gradient(rgba(167,139,250,.14) 1px, transparent 1px), linear-gradient(90deg, rgba(167,139,250,.14) 1px, transparent 1px); background-size:10px 10px;"></div>
+    <div><b>L3 - Mreža 64px.</b> <span class="t">Statična, maskirana radijalno - vidi se samo u centru, nestaje ka ivicama. Daje "inženjerski" karakter bez buke.</span></div>
+  </div>
+  <div class="layer">
+    <div class="pane" style="background:#050408;">
+      <span style="position:absolute; left:12px; top:16px; width:2px; height:2px; border-radius:50%; background:#C7B7FF;"></span>
+      <span style="position:absolute; left:36px; top:34px; width:1px; height:1px; border-radius:50%; background:#A78BFA;"></span>
+      <span style="position:absolute; left:60px; top:10px; width:2px; height:2px; border-radius:50%; background:#8B5CF6;"></span>
+      <span style="position:absolute; left:86px; top:28px; width:1px; height:1px; border-radius:50%; background:#C7B7FF;"></span>
+      <span style="position:absolute; left:108px; top:18px; width:2px; height:2px; border-radius:50%; background:#3B4BFF;"></span>
+    </div>
+    <div><b>L4 - Čestice (zvezde).</b> <span class="t">18 tačaka, 1-2px, ljubičasto-teget nijanse. Animacija <code>particle-drift</code>: lebde nagore 40-90 s, opacity 0,2-0,7. Jedini pokretni sloj.</span></div>
+  </div>
+  <div class="layer">
+    <div class="pane" style="background:linear-gradient(180deg, transparent 0 52%, rgba(139,92,246,.35) 54%, transparent 58%, transparent 100%), #050408;"></div>
+    <div><b>L5 - Sken linija + grain.</b> <span class="t">1px linija prelazi ekran za 14 s (gore-dole). Film grain statičan, 3% - daje "taktilnost" slici.</span></div>
+  </div>
+
+  <h3>3.2 CSS (bez JS-a, bez novih zavisnosti)</h3>
+<pre><code><span class="c">/* src/styles/base.css - svi slojevi ispod sadržaja, z-index: 0 */</span>
+body::before { <span class="c">/* L2 - ambijent koji "diše" */</span>
+  content: ""; position: fixed; inset: -10%; z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(ellipse 60% 50% at 14% 10%, var(--color-depth-violet), transparent 62%),
+    radial-gradient(ellipse 55% 45% at 86% 90%, var(--color-depth-navy), transparent 62%);
+  animation: ambient-drift 26s ease-in-out infinite alternate;
+}
+body::after { <span class="c">/* L3 - mreža */</span>
+  content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background-image: linear-gradient(var(--grid-line) 1px, transparent 1px),
+                    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, #000, transparent 85%);
+}
+@keyframes ambient-drift {
+  from { transform: translate3d(0,0,0) scale(1); opacity: .8; }
+  to   { transform: translate3d(2%, -1.5%, 0) scale(1.06); opacity: 1; }
+}
+@keyframes particle-drift {
+  from { transform: translate3d(0, 0, 0); opacity: .2; }
+  50%  { opacity: .7; }
+  to   { transform: translate3d(6px, -120px, 0); opacity: .2; }
+}
+@keyframes scan {
+  from { transform: translate3d(0, -20vh, 0); }
+  to   { transform: translate3d(0, 120vh, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  body::before, .nx-particles, .nx-scan { animation: none !important; }
+}</code></pre>
+
+  <h3>3.3 Čestice - komponenta i JSX</h3>
+<pre><code><span class="c">// src/components/AmbientBackdrop.tsx (novo, ~40 linija)</span>
+&lt;div className="nx-particles" aria-hidden="true"&gt;
+  {Array.from({ length: 18 }, (_, i) =&gt; (
+    &lt;i key={i} style={&#123;
+      left: `$&#123;(i * 37) % 100&#125;%`,
+      top: `$&#123;(i * 53) % 100&#125;%`,
+      animationDuration: `$&#123;40 + (i % 7) * 8&#125;s`,
+      animationDelay: `$&#123;-(i * 3.1)&#125;s`,
+    &#125;&#125; /&gt;
+  ))}
+&lt;/div&gt;</code></pre>
+
+  <div class="dodont">
+    <div class="no">
+      <h4>Pravila da animacija ne smeta</h4>
+      <ul>
+        <li>Nikad <code>top/left/width</code> - samo <code>transform</code> i <code>opacity</code> (GPU, bez layouta).</li>
+        <li>Najviše <strong>3</strong> animirana sloja; od toga samo jedan "putuje" (čestice).</li>
+        <li><code>prefers-reduced-motion</code> isključuje sve - obavezno.</li>
+        <li>Kontrast teksta se proverava <em>preko</em> animacije - najsvetlija tačka pozadine ne sme da obori AA.</li>
+      </ul>
+    </div>
+    <div class="yes">
+      <h4>Gde se animacija vidi</h4>
+      <ul>
+        <li>Hero i sekcije sa puno praznog prostora (početna, auth, 404).</li>
+        <li>Iza naslova sekcija - ne ispod teksta članka (dugo čitanje).</li>
+        <li>Forum i popusti: samo ambient + mreža, bez čestica (gust sadržaj).</li>
+        <li>Mobilni: bez čestica, ostaje samo ambient (baterija).</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ 4. PRIMENA -->
+<section class="break">
+  <h2><span class="num">4.</span>Kako se 3.0 uvodi u kod</h2>
+  <p>Paleta je već pripremljena kao tokeni - primena je prepis vrednosti i nekoliko nijansi u komponentama. Nema novih biblioteka i nema preuređivanja layouta.</p>
+
+  <h3>4.1 Tokeni - <code>src/styles/tokens.css</code></h3>
+<pre><code>@theme {
+  <span class="c">/* Površine: crna -> teget */</span>
+  --color-surface-0: #050408;   <span class="c">/* Void */</span>
+  --color-surface-1: #0B0917;   <span class="c">/* Obsidian */</span>
+  --color-surface-2: #121026;   <span class="c">/* Ink Violet */</span>
+  --color-surface-3: #171A38;   <span class="c">/* Navy Deep */</span>
+  --color-surface-4: #1E2350;   <span class="c">/* Navy */</span>
+  --color-surface-5: #2A2E66;   <span class="c">/* Navy Light */</span>
+
+  <span class="c">/* Brend */</span>
+  --color-primary: #8B5CF6;
+  --color-primary-hover: #A78BFA;
+  --color-primary-surface: #7C3AED;
+  --color-primary-fg: #A78BFA;
+  --color-primary-deep: #4C1D95;
+  --color-navy-accent: #3B4BFF;
+  --color-secondary: #38BDF8;
+
+  <span class="c">/* Tekst + ivice */</span>
+  --color-text-primary: #F1EFFA;
+  --color-text-secondary: #B6B2D0;
+  --color-text-tertiary: #918CB4;
+  --color-text-muted: #7B7699;
+  --color-border-subtle: #1C1930;
+  --color-border-default: #262243;
+  --color-border-strong: #363060;
+
+  <span class="c">/* Ambient (animacije) */</span>
+  --color-depth-violet: rgba(139, 92, 246, 0.24);
+  --color-depth-navy:   rgba(59, 75, 255, 0.18);
+  --grid-line:          rgba(167, 139, 250, 0.055);
+  --gradient-brand: linear-gradient(135deg, #8B5CF6 0%, #3B4BFF 100%);
+}</code></pre>
+
+  <h3>4.2 Redosled rada (procena 8-12 h)</h3>
+  <table>
+    <tr><th style="width:12mm;">Faza</th><th>Posao</th><th style="width:56mm;">Fajlovi</th><th style="width:16mm;">Vreme</th></tr>
+    <tr><td><strong>F1</strong></td><td>Novi tokeni (crna, teget, tekst, ivice) + svetla tema sa plavim tegetom</td><td><code>tokens.css</code>, <code>theme.css</code></td><td>1-2 h</td></tr>
+    <tr><td><strong>F2</strong></td><td>Ambient sloj: sjajevi, mreža, grain; čestice + sken linija</td><td><code>base.css</code>, <code>AmbientBackdrop.tsx</code>, <code>Layout.tsx</code></td><td>2 h</td></tr>
+    <tr><td><strong>F3</strong></td><td>Hero i kartice: void/ink skala, ljubičasta nit sekcije, hover bez glow-a</td><td><code>theme.css</code>, <code>StoryCard.tsx</code>, <code>SectionHeader.tsx</code></td><td>2 h</td></tr>
+    <tr><td><strong>F4</strong></td><td>Forum (teget paneli, cyan samo status), popusti (amber cena 32px)</td><td><code>ForumPage.tsx</code>, <code>ThreadRow.tsx</code>, <code>DealCard.tsx</code>, <code>PriceTag.tsx</code></td><td>2-3 h</td></tr>
+    <tr><td><strong>F5</strong></td><td>Rang lista prestige, auth brand panel, Navbar logo sa <code>--gradient-brand</code></td><td><code>LeaderboardBoard.tsx</code>, <code>AuthShell.tsx</code>, <code>Navbar.tsx</code></td><td>2 h</td></tr>
+    <tr><td><strong>F6</strong></td><td>Snimci 1920x1080 svih strana, korekcija kontrasta, <code>npm run verify</code></td><td><code>scripts/design/capture-1920.mjs</code></td><td>1 h</td></tr>
+  </table>
+
+  <div class="callout">
+    <span class="eyebrow">Posle F1 + F2</span>
+    <p>Već se vidi 70% novog identiteta: crna baza sa tihim ljubičasto-teget sjajem i česticama. F3-F5 menjaju samo nijanse postojećih komponenti - nema preuređivanja layouta, zato je rizik mali.</p>
+  </div>
+
+  <h3>4.3 Primer primene: kartica vesti pre i posle</h3>
+<pre><code><span class="c">/* src/styles/components/theme.css - .story-card-row */</span>
+<span class="c">/* PRE 3.0 */</span>
+background: #15112b;  border: 1px solid rgba(255,255,255,.06);
+<span class="c">/* POSLE 3.0 - OBSIDIAN VIOLET */</span>
+background: var(--color-surface-2);            <span class="c">/* #121026 Ink */</span>
+border: 1px solid var(--color-border-subtle);  <span class="c">/* #1C1930 Hairline */</span>
+border-left: 2px solid var(--color-primary);   <span class="c">/* #8B5CF6 - akcentna nit */</span>
+<span class="c">/* hover */</span>
+background: var(--color-surface-3);            <span class="c">/* #171A38 Navy Deep */</span>
+border-color: var(--color-border-strong);      <span class="c">/* #363060 */</span></code></pre>
+  <p>Isti obrazac važi za svaku karticu: crna baza, teget za interakciju, jedna ljubičasta nit koja označava "ovo je sadržaj koji se čita". Bez senke, bez glow-a, bez gradijenta - promena je u tri linije CSS-a po komponenti.</p>
+
+  <h3>4.4 Verifikacija</h3>
+  <ul>
+    <li><code>npm run lint</code> - TypeScript čist; <code>npm run lint:css</code> - nijedan hex van tokena.</li>
+    <li><code>npm run test</code> - server testovi; <code>npm run verify</code> - ceo lanac uključujući build i prerender.</li>
+    <li>Snimci 1920x1080 za 6 strana (početna, forum, popusti, rang lista, članak, prijava) - <code>node scripts/design/capture-1920.mjs</code>.</li>
+    <li>Tabela kontrasta iz 2.5 ostaje zelena; animacije isključene na <code>prefers-reduced-motion</code>.</li>
+  </ul>
+</section>
+
+<!-- ============================================================ 5. PRILOG -->
+<section>
+  <div class="eyebrow">05 - prilog</div>
+  <h2>Brzi pregled: do / ne raditi</h2>
+
+  <div class="dodont" style="margin-bottom:6mm;">
+    <div class="yes">
+      <h4>Radi</h4>
+      <ul>
+        <li>Crna baza <code>#050408</code>, teget stepenice za sve površine.</li>
+        <li>Ljubičasta samo za akciju, aktivni tab i nit sekcije.</li>
+        <li>Cyan isključivo za status (online, live, broj odgovora).</li>
+        <li>Tanke ivice <code>#1C1930</code> umesto senki.</li>
+        <li>Animacije: transform + opacity, 3 sloja maksimum.</li>
+        <li>Beli tekst na <code>#7C3AED</code>, nikad na <code>#8B5CF6</code>.</li>
+      </ul>
+    </div>
+    <div class="no">
+      <h4>Ne radi</h4>
+      <ul>
+        <li>Ne koristi ljubičastu kao pozadinu velikih blokova - preuzima ekran.</li>
+        <li>Ne stavljaj glow na kartice (samo CTA i aktivni tab).</li>
+        <li>Ne dodaj nove boje van palete (svaka ide u <code>tokens.css</code>).</li>
+        <li>Ne animiraj <code>top/left/width</code> - layout thrash.</li>
+        <li>Ne uključuj čestice iza tela članka.</li>
+        <li>Ne stavljaj dve pune ljubičaste akcije na isti ekran.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Prilozi uz ovaj dokument</h3>
+  <table>
+    <tr><th style="width:70mm;">Fajl</th><th>Sadržaj</th></tr>
+    <tr><td><code>01-pocetna-1920x1080.png</code></td><td>Početna - hero, top priče, forum, popusti (trenutno stanje)</td></tr>
+    <tr><td><code>02-forum-1920x1080.png</code></td><td>Forum - kategorije i lista tema</td></tr>
+    <tr><td><code>03-popusti-1920x1080.png</code></td><td>Popusti - amber zona, cene</td></tr>
+    <tr><td><code>04-rang-lista-1920x1080.png</code></td><td>Rang lista - top 3 i tabela</td></tr>
+    <tr><td><code>05-clanak-1920x1080.png</code></td><td>Članak - editorial layout</td></tr>
+    <tr><td><code>06-prijava-1920x1080.png</code></td><td>Prijava - auth ekran</td></tr>
+    <tr><td><code>snimci.json</code></td><td>Tehnički izveštaj snimaka (naslov, tema, fontovi, greške konzole)</td></tr>
+    <tr><td><code>snimci-1920x1080.pdf</code></td><td>Svi snimci u jednom PDF-u (A4 po širini)</td></tr>
+    <tr><td><code>scripts/design/palette.mjs</code></td><td>Izvorne vrednosti palete + izračun kontrasta</td></tr>
+    <tr><td><code>pre/*-1920x1080.png</code></td><td>Snimci stanja 3.0.0 — analiza u sekcijama 1 i 1b</td></tr>
+    <tr><td><code>scripts/design/capture-1920.mjs</code></td><td>Skripta za snimke 1920x1080</td></tr>
+  </table>
+
+  <div class="callout">
+    <span class="eyebrow">Zaključak</span>
+    <p>NEXUS 3.0 ne menja strukturu - menja <strong>svetlost</strong>. Crna baza vraća kontrast, teget daje dubinu i odvaja interfejs od akcije, a ljubičasta ostaje jedina tačka na koju oko treba da klikne. Sitne animacije u pozadini (ambijent, mreža, čestice, sken linija) daju "živ" osećaj bez trošenja pažnje. Rezultat: portal koji izgleda kao igra, a čita se kao novina.</p>
+  </div>
+</section>
+
+<script>
+  const d = document.getElementById('doc-date');
+  if (d) d.textContent = new Date().toLocaleDateString('sr-Latn-RS', { day: 'numeric', month: 'long', year: 'numeric' });
+</script>
+</body>
+</html>

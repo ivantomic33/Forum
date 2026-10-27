@@ -1,0 +1,211 @@
+/**
+ * SLOJ 2 — RESET I OSNOVA (elementi: html, body, scrollbar, fokus, tipografija tela)
+ *
+ * 3.0 OBSIDIAN VIOLET — pozadina je crna baza sa pet slojeva (svi ISPOD sadržaja):
+ *   L1  body            — ravna `surface-0` (#050408)
+ *   L2  body::before    — dva ambijentalna sjaja (violet g-l, royal d-d), `ambient-drift` 26 s
+ *   L3  body::after     — 64px mreža, maskirana radijalno (statična)
+ *   L4  `.nx-particles` — 18 čestica koje lebde nagore 40-90 s (AmbientBackdrop.tsx)
+ *   L5  `.nx-scan`      — 1px sken linija (14 s) + `.forge-grain` filmsko zrno
+ * Animiraju se samo `transform` i `opacity`; sve staje na `prefers-reduced-motion`.
+ */
+@layer base {
+
+  /* === BASE STYLES === */
+  * {
+    border-color: var(--color-border-default);
+    box-sizing: border-box;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* Bez boje na <html>: canvas slika body-jeve slojeve (ambijent + mreža).
+       Neprozirna boja ovde bila bi iscrtana iznad njih = ravan crni void. */
+    color: var(--color-text-primary);
+    /* U-08 — tema je stvar `data-theme` (vidi `components/theme.css`), ne
+       hardkodovan `dark`. Sistem se koristi dok korisnik ne izabere. */
+    color-scheme: light dark;
+    scrollbar-color: var(--color-border-strong) var(--color-surface-0);
+  }
+
+  /* L1 — crna baza. Sjajevi i mreža su odvojeni slojevi (mogu da se animiraju). */
+  body {
+    background-color: var(--color-surface-0);
+    color: var(--color-text-primary);
+    font-family: var(--font-family-body);
+    font-size: var(--text-body);
+    line-height: var(--text-body-line);
+    min-height: 100vh;
+    margin: 0;
+    overflow-x: hidden;
+    text-rendering: optimizeLegibility;
+    /* Sadržaj je iznad svih slojeva pozadine (`#root` je z-index 1) */
+    isolation: isolate;
+  }
+
+  /* L2 — dva ambijentalna sjaja koja „dišu“ (jedini animirani sloj uz čestice) */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: -10%;
+    z-index: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(ellipse 60% 50% at 14% 10%, var(--color-depth-indigo), transparent 62%),
+      radial-gradient(ellipse 55% 45% at 86% 90%, var(--color-depth-violet), transparent 62%);
+    animation: ambient-drift 26s ease-in-out infinite alternate;
+  }
+
+  /* L3 — 64px mreža; vidi se samo u centru, nestaje ka ivicama */
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image:
+      var(--gradient-grid-line),
+      var(--gradient-grid-line-v);
+    background-size: 64px 64px;
+    background-position: center top;
+    -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, #000 0%, rgba(0, 0, 0, 0.55) 55%, transparent 85%);
+    mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, #000 0%, rgba(0, 0, 0, 0.55) 55%, transparent 85%);
+  }
+
+  /* Sadržaj iznad pozadinskih slojeva */
+  #root {
+    position: relative;
+    z-index: 1;
+  }
+
+  /* L4 — čestice (zvezde). 18 tačaka, 1-2px, lebde nagore ispod sadržaja. */
+  .nx-particles {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    overflow: hidden;
+  }
+
+  .nx-particles i {
+    position: absolute;
+    width: 2px;
+    height: 2px;
+    border-radius: 50%;
+    background: var(--color-particle);
+    animation-name: particle-drift;
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+    will-change: transform, opacity;
+  }
+
+  .nx-particles i:nth-child(3n) {
+    background: var(--color-particle-navy);
+  }
+
+  /* L5 — sken linija; 1px nit koja prelazi ekran za 14 s */
+  .nx-scan {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    overflow: hidden;
+  }
+
+  .nx-scan::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 20vh;
+    background: var(--gradient-scanline);
+    animation: scan 14s ease-in-out infinite alternate;
+    will-change: transform;
+  }
+
+  /* Film grain — statični SVG fraktalni šum, ~3% vidljivosti (bez mrežnog zahteva) */
+  .forge-grain {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0.028;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size: 180px 180px;
+    mix-blend-mode: overlay;
+  }
+
+  /* Čestice su „teške“ za bateriju — na mobilnom ostaje samo ambijent */
+  @media (max-width: 767.98px) {
+
+    .nx-particles,
+    .nx-scan {
+      display: none;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+
+    body::before,
+    .nx-particles i,
+    .nx-scan::before {
+      animation: none !important;
+    }
+
+    .nx-scan::before {
+      opacity: 0.4;
+    }
+  }
+
+  @media print {
+
+    body::before,
+    body::after,
+    .nx-particles,
+    .nx-scan,
+    .forge-grain {
+      display: none !important;
+    }
+  }
+}
+
+/* Keyframes van `@layer`: referencirane su po imenu iz layera iznad. */
+@keyframes ambient-drift {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.8;
+  }
+
+  to {
+    transform: translate3d(2%, -1.5%, 0) scale(1.06);
+    opacity: 1;
+  }
+}
+
+@keyframes particle-drift {
+  from {
+    transform: translate3d(0, 0, 0);
+    opacity: 0.2;
+  }
+
+  50% {
+    opacity: 0.7;
+  }
+
+  to {
+    transform: translate3d(6px, -120px, 0);
+    opacity: 0.2;
+  }
+}
+
+@keyframes scan {
+  from {
+    transform: translate3d(0, -20vh, 0);
+  }
+
+  to {
+    transform: translate3d(0, 120vh, 0);
+  }
+}

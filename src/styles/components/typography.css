@@ -1,0 +1,103 @@
+/**
+ * SLOJ 3 — TIPOGRAFIJA NASLOVA, AKCENti I `prefers-reduced-motion`
+ *
+ * 2.8.0 — veličina naslova NIJE ovde: jedina skala je u `theme.css`
+ * (`--text-hero`, `--text-h2`, `--text-h3`). Ovaj sloj nosi samo familiju,
+ * boju i `prefers-reduced-motion`. Ranije je `.page-title` ovde dobijao
+ * `color: transparent` + gradient (tekst skoro nevidljiv) — uklonjeno.
+ */
+@layer components-typography {
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-family-heading);
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+    color: var(--color-text-primary);
+  }
+
+  /* Klimaksni naslovi (page/thread/hero) */
+  .page-title {
+    font-family: var(--font-family-heading);
+  }
+
+  /* Sekcijski naslovi i kartice kategorija */
+  .section-title,
+  .forum-cat-title {
+    font-family: var(--font-family-heading);
+  }
+
+  code,
+  kbd,
+  samp,
+  pre,
+  .font-mono {
+    font-family: var(--font-family-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::selection {
+    background: var(--color-primary-muted);
+    color: var(--color-text-primary);
+  }
+
+  /* READABILITY FLOOR — nikad ispod 12 px (badge/micro), telo je 16 px. */
+  .text-\[10px\],
+  .text-\[11px\] {
+    font-size: 0.75rem !important;
+    /* 12px */
+    line-height: 1.4;
+  }
+
+  /* Skip link za tastaturnu navigaciju (fokus je definisan u `theme.css`) */
+  .skip-link {
+    position: absolute;
+    left: 1rem;
+    top: -100px;
+    z-index: 100;
+    padding: 0.625rem 1rem;
+    border-radius: var(--radius-md);
+    background: var(--color-surface-3);
+    border: 1px solid var(--color-border-focus);
+    color: var(--color-text-primary);
+    font-size: 0.875rem;
+    font-weight: 600;
+    transition: top 0.15s ease;
+  }
+
+  .skip-link:focus {
+    top: 1rem;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+      scroll-behavior: auto !important;
+    }
+
+    .ticker-track,
+    .shimmer,
+    .badge-chip-animated::after,
+    .medal::after,
+    .role-emblem-icon,
+    .role-frame-admin::before,
+    .role-frame-dev::before,
+    .role-frame-mod::before {
+      animation: none !important;
+    }
+
+    /* Duplirani naslovi postoje samo za animaciju — skloni ih u static režimu */
+    .ticker-track>[aria-hidden='true'] {
+      display: none !important;
+    }
+  }
+}

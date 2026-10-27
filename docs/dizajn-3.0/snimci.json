@@ -1,0 +1,110 @@
+[
+  {
+    "id": "01-pocetna",
+    "path": "/",
+    "note": "Početna — hero, top priče, popusti, forum",
+    "file": "docs\\dizajn-3.0\\01-pocetna-1920x1080.png",
+    "title": "NEXUS // Gaming Portal & Forum",
+    "h1": "Cyberpunk 2077: Phantom Liberty DLC stiže sa revolucionarnim promenama",
+    "theme": "dark",
+    "bg": "rgb(5, 4, 8)",
+    "scrollH": 2815,
+    "fonts": [
+      "Inter",
+      "Inter Tight",
+      "JetBrains Mono"
+    ],
+    "errors": [],
+    "failed": []
+  },
+  {
+    "id": "02-forum",
+    "path": "/forum",
+    "note": "Forum — kategorije i teme",
+    "file": "docs\\dizajn-3.0\\02-forum-1920x1080.png",
+    "title": "NEXUS // Gaming Portal & Forum",
+    "h1": "Forum",
+    "theme": "dark",
+    "bg": "rgb(5, 4, 8)",
+    "scrollH": 2328,
+    "fonts": [
+      "Inter",
+      "Inter Tight",
+      "JetBrains Mono"
+    ],
+    "errors": [],
+    "failed": []
+  },
+  {
+    "id": "03-popusti",
+    "path": "/deals",
+    "note": "Popusti — amber zona",
+    "file": "docs\\dizajn-3.0\\03-popusti-1920x1080.png",
+    "title": "Popusti — gde je najjeftiniji · NEXUS Gaming Portal",
+    "h1": "Gde je najjeftiniji…",
+    "theme": "dark",
+    "bg": "rgb(5, 4, 8)",
+    "scrollH": 1740,
+    "fonts": [
+      "Inter",
+      "Inter Tight",
+      "JetBrains Mono"
+    ],
+    "errors": [],
+    "failed": []
+  },
+  {
+    "id": "04-rang-lista",
+    "path": "/leaderboard",
+    "note": "Rang lista — prestige",
+    "file": "docs\\dizajn-3.0\\04-rang-lista-1920x1080.png",
+    "title": "NEXUS // Gaming Portal & Forum",
+    "h1": "Rang-lista zajednice",
+    "theme": "dark",
+    "bg": "rgb(5, 4, 8)",
+    "scrollH": 2092,
+    "fonts": [
+      "Inter",
+      "Inter Tight",
+      "JetBrains Mono"
+    ],
+    "errors": [],
+    "failed": []
+  },
+  {
+    "id": "05-clanak",
+    "path": "/article/gta-6-odlozeno-na-jesen-2026",
+    "note": "Članak — editorial",
+    "file": "docs\\dizajn-3.0\\05-clanak-1920x1080.png",
+    "title": "GTA 6 zvanično odložen za jesen 2026 — šta to znači za industriju · NEXUS Gaming Portal",
+    "h1": "GTA 6 zvanično odložen za jesen 2026 — šta to znači za industriju",
+    "theme": "dark",
+    "bg": "rgb(5, 4, 8)",
+    "scrollH": 2538,
+    "fonts": [
+      "Inter",
+      "Inter Tight",
+      "JetBrains Mono"
+    ],
+    "errors": [],
+    "failed": []
+  },
+  {
+    "id": "06-prijava",
+    "path": "/login",
+    "note": "Prijava — auth shell",
+    "file": "docs\\dizajn-3.0\\06-prijava-1920x1080.png",
+    "title": "NEXUS // Gaming Portal & Forum",
+    "h1": "Dobrodošli nazad",
+    "theme": "dark",
+    "bg": "rgb(5, 4, 8)",
+    "scrollH": 1566,
+    "fonts": [
+      "Inter",
+      "Inter Tight",
+      "JetBrains Mono"
+    ],
+    "errors": [],
+    "failed": []
+  }
+]

@@ -28,6 +28,7 @@ import { TERMS_VERSION } from './auth.js';import {
   setSessionCookies,
 } from '../lib/sessions.js';
 import { oauthConfig, oauthRedirectUri, type OAuthProvider } from '../lib/authConfig.js';
+import { markSignedIn } from '../lib/presence.js';
 import {
   authorizationUrl,
   createPkce,
@@ -129,6 +130,8 @@ async function completeLogin(req: any, res: any, user: UserRecord, redirect: str
   });
 
   await db.users.update(user.id, { status: 'online', lastSeenAt: new Date().toISOString() }).catch(() => {});
+  // B-15 — isto kao lozinka: `users.status` je keš, prisustvo je `user_presence`.
+  await markSignedIn(user);
   const target = safeRedirect(redirect) ?? '/';
   res.redirect(302, `${clientBase()}/auth/callback?ok=1&next=${encodeURIComponent(target)}`);
 }

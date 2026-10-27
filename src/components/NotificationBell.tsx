@@ -6,7 +6,7 @@ import { useAuthStore } from '../store/authStore';
 import { cn } from './ui/cn';
 
 /**
- * NotificationBell � broj neprocitanih notifikacija iz `GET /api/notifications`.
+ * NotificationBell � broj neprocitanih notifikacija iz `GET /api/notifications`.
  * Ceo prostor je link ka profilu (tab Notifikacije); polling na 30s.
  */
 export function NotificationBell({ className }: { className?: string }) {
@@ -15,9 +15,12 @@ export function NotificationBell({ className }: { className?: string }) {
   const { data } = useQuery({
     queryKey: ['notifications', 'unread'],
     queryFn: () => api.notifications.list({ unreadOnly: false, limit: 20 }),
+    // N-01 — bez sesije se upit ne pokreće (ni refetch, ni toast o 401).
     enabled: isAuthenticated,
     staleTime: 30_000,
-    refetchInterval: 30_000,
+    // N-02 — Realtime kanal (`notification` broadcast) osvežava zvonce odmah;
+    // polling ostaje samo kao fallback na 60s (mreža bez WebSocket-a).
+    refetchInterval: 60_000,
     refetchOnWindowFocus: true,
     retry: 1,
   });

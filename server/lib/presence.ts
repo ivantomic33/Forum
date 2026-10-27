@@ -170,6 +170,9 @@ class SupabasePresenceStore implements PresenceStore {
       for (const row of (rpc.data ?? []) as Array<{ user_id: string; last_seen_at?: string | null }>) {
         map.set(row.user_id, statusAt(row.last_seen_at));
       }
+      // B-15 — odsustvo reda je „offline“, ne „nema podatka“. Bez ovoga bi lista
+      // prikazala status iz `users.status` (memorijski keš druge instance).
+      for (const id of userIds) if (!map.has(id)) map.set(id, 'offline');
       return map;
     }
     if (!isMissingSchemaError(rpc.error)) throw rpc.error;
@@ -183,6 +186,7 @@ class SupabasePresenceStore implements PresenceStore {
     for (const row of (data ?? []) as Array<{ user_id: string; last_seen_at?: string | null }>) {
       map.set(row.user_id, statusAt(row.last_seen_at));
     }
+    for (const id of userIds) if (!map.has(id)) map.set(id, 'offline');
     return map;
   }
 
@@ -279,6 +283,13 @@ export async function setPresence(
   // se upisuje odmah, inače bi profil prikazivao „na mreži“ dok je korisnik odsutan.
   const lastWrite = lastStatusWrite.get(userId);
   const previousStatus = lastWrittenStatus.get(userId);
+  /**
+   * B-15 — `users.status` je OVDE i samo OVDE keš: on se ažurira pri svakoj
+   * promeni prisustva na bilo kojoj instanci, pa tuđi zapis nikad nije stariji
+   * od `PRESENCE_AWAY_MS`. Liste (profil, rang-lista, forum) od 2.6.1 čitaju
+   * `user_presence` preko `presenceMap`/`onlineSet`, pa jedna instanca ne može
+   * da prikaže „offline“ ono što druga vidi kao „online“.
+   */
   if (status !== 'online' || previousStatus !== 'online' || now - (lastWrite ?? 0) > STATUS_WRITE_THROTTLE_MS) {
     lastStatusWrite.set(userId, now);
     lastWrittenStatus.set(userId, status);
@@ -426,6 +437,23 @@ export function useSupabasePresence(client: SupabaseClient) {
 }
 
 /**
+ * Režim skladišta prisustva za `/api/health` (F-11 iz liste 7.1).
+ *
+ * `memory` znači da `user_presence` nije aktivna (Supabase nije podešen ili
+ * migracija nije puštena) — korisno da se vidi iz jednog `curl`-a, bez čitanja
+ * logova. `broadcast` je odvojen signal: bez `SUPABASE_*` nema Realtime-a, pa
+ * klijenti dobijaju online stanje samo preko `/api/presence` polling-a.
+ */
+export const presenceMode = {
+  storage(): 'supabase' | 'memory' {
+    return presenceStore instanceof SupabasePresenceStore ? 'supabase' : 'memory';
+  },
+  broadcast(): 'supabase' | 'memory' {
+    return broadcastClient && !broadcastUnavailable ? 'supabase' : 'memory';
+  },
+};
+
+/**
  * OBLAST: NOTIFIKACIJE (2.6.1)
  * ----------------------------
  * Isti kanal prenosi i „imaš novu notifikaciju“ — samo javni oblik notifikacije
@@ -495,6 +523,20 @@ export async function isUserOnline(userId: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * POTVRDA PRISUSTVA POSLE PRIJAVE (B-15)
+ * --------------------------------------
+ * Prijava i OAuth upisuju `users.status` (keš za `/auth/me`) — to NIJE znak
+ * prisustva. Prisustvo je `user_presence` red koji čitaju SVE liste (profil,
+ * rang-lista, forum) i sve instance. Zato prijava ovde upisuje i taj red,
+ * jednim mestom, da se lozinka i OAuth ne razlikuju.
+ *
+ * Ne baca grešku: heartbeat iz SPA-e ionako ponavlja isti upis.
+ */
+export async function markSignedIn(user: { id: string }): Promise<void> {
+  await setPresence(user.id, true).catch(() => {});
 }
 
 /** `online | away | offline` za jednog korisnika (profil vraća status, ne samo boolean). */

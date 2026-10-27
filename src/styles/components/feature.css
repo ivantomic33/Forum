@@ -1,0 +1,973 @@
+/**
+ * SLOJ 3 — PROFIL, BEDŽEVI, VERIFIKACIJA, TOAST (Sonner) I MODALI
+ */
+@layer components-feature {
+  /* ——— Profil: zaključani bedževi izgledaju namerno zaključani ——— */
+  .profile-badge-row-locked {
+    position: relative;
+    background: var(--color-surface-0);
+    border-color: var(--color-border-subtle);
+    border-style: dashed;
+  }
+
+  .profile-badge-row-locked:hover {
+    border-color: var(--color-border-default);
+    background: var(--color-surface-1);
+  }
+
+  /* ——— Profil: XP traka, avatar prsten, status ——— */
+  /*
+   * 5.0 whoami linija — terminal format iznad PlayerCard-a. Stilovi su nekad
+   * živeli u isključenom `nexus-terminal-mono.css`, pa je linija bila
+   * neostilizovan block preko cover-a (isečen tekst "$ wh").
+   */
+  .profile-whoami {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 10;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem 0.75rem;
+    padding: 0.5rem 1.25rem;
+    font-family: var(--font-family-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.02em;
+    color: var(--color-text-secondary);
+    pointer-events: none;
+  }
+
+  .profile-whoami-cmd {
+    color: var(--color-primary-fg);
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+
+  .profile-whoami-cmd::after {
+    content: ' →';
+    color: var(--color-text-muted);
+    font-weight: 400;
+  }
+
+  .profile-whoami-out {
+    color: var(--color-text-secondary);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  @media (max-width: 639.98px) {
+    .profile-whoami {
+      font-size: 0.62rem;
+      gap: 0.4rem;
+      padding-inline: 1rem;
+    }
+  }
+
+  .profile-xp-fill {
+    position: relative;
+    background: var(--color-primary);
+    overflow: hidden;
+  }
+
+  @keyframes xpGradient {
+    from { background-position: 0% 50%; }
+    to { background-position: 100% 50%; }
+  }
+
+  @keyframes xpShimmer {
+    0% { transform: translateX(-100%); }
+    55%, 100% { transform: translateX(120%); }
+  }
+
+  /* ONLINE status — suptilni pulse prstena (samo box-shadow, bez layout-a) */
+  .nx-online-pulse {
+    position: relative;
+  }
+
+  .nx-online-pulse::after {
+    content: "";
+    position: absolute;
+    inset: -2px;
+    border-radius: 50%;
+    border: 1px solid var(--color-success);
+    animation: onlinePulse 2.4s ease-out infinite;
+    pointer-events: none;
+  }
+
+  @keyframes onlinePulse {
+    0% { transform: scale(0.9); opacity: 0.85; }
+    80%, 100% { transform: scale(2); opacity: 0; }
+  }
+
+  /* Neon-pulse za HOT / FEATURED oznake (npr. Vrele teme) */
+  .nx-hot-pulse {
+    animation: hotPulse 3.2s ease-in-out infinite;
+  }
+
+  .profile-avatar-frame {
+    border-color: var(--color-border-subtle);
+    background: linear-gradient(160deg, var(--color-primary-fg), var(--color-primary) 60%, var(--color-surface-3));
+    box-shadow: var(--shadow-sm);
+    transition: transform var(--dur-slow) var(--ease-forge);
+  }
+
+  .profile-avatar-frame:hover {
+    transform: translateY(-2px);
+  }
+
+  .profile-status-dot {
+    box-shadow: 0 0 0 1px var(--color-surface-1);
+  }
+
+  /* ——— Pretraga / inputi: jedan fokus (2px primary-fg) ——— */
+  .ui-field {
+    transition: border-color 0.18s var(--ease-forge), background-color 0.18s var(--ease-forge);
+  }
+
+  .ui-field:hover:not(:disabled) {
+    border-color: var(--color-border-strong);
+  }
+
+  .ui-field:focus {
+    border-color: var(--color-primary-fg);
+    background-color: var(--color-surface-2);
+  }
+
+  /* ——— Sidebar kartice: ista površina kao sve druge (bez gradijenata) ——— */
+  .ui-card-static {
+    background-image: none;
+  }
+
+  /* ——— Rank badge: mirna meta oznaka ——— */
+  .rank-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.2rem 0.625rem;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-family-mono);
+    font-size: var(--text-micro);
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    line-height: 1.5;
+    white-space: nowrap;
+    color: var(--color-text-primary);
+    background: var(--color-surface-2);
+    border: 1px solid var(--color-border-default);
+    transition: border-color var(--dur-base) var(--ease-forge);
+  }
+
+  .rank-badge:hover {
+    border-color: var(--color-border-strong);
+  }
+
+  /* ==========================================================================
+     PRESTIGE ZONA — top 3 rang liste (zlato, srebro, bronza, šampion)
+     Boje isključivo iz rang tokena (`--color-gold/silver/bronze-rank`).
+     ========================================================================== */
+  .rank-badge-1 {
+    color: var(--color-gold-rank);
+    background: color-mix(in srgb, var(--color-gold-rank) 16%, transparent);
+    border-color: color-mix(in srgb, var(--color-gold-rank) 55%, transparent);
+  }
+
+  .rank-badge-2 {
+    color: var(--color-silver-rank);
+    background: color-mix(in srgb, var(--color-silver-rank) 14%, transparent);
+    border-color: color-mix(in srgb, var(--color-silver-rank) 45%, transparent);
+  }
+
+  .rank-badge-3 {
+    color: var(--color-bronze-rank);
+    background: color-mix(in srgb, var(--color-bronze-rank) 16%, transparent);
+    border-color: color-mix(in srgb, var(--color-bronze-rank) 50%, transparent);
+  }
+
+  /*
+   * Podijum (3.0): #1 = prestige prsten violet → royal (samo mu on daje boju);
+   * #2/#3 = samo svetlija teget ivica — status bez dodatnih boja.
+   */
+  .podium-rank-1 {
+    border-color: var(--color-primary);
+    background: var(--color-surface-2);
+  }
+
+  .podium-rank-2,
+  .podium-rank-3 {
+    border-color: var(--color-border-strong);
+    background: var(--color-surface-1);
+  }
+
+  /*
+   * ŠAMPION — DVOSTRUKI PRSTEN: unutrašnji zlatni, spoljni violet glow.
+   * (Glow je ovde dozvoljen: to je prestižni akcent, ne "glow na svakoj kartici".)
+   */
+  .rank-avatar-1 {
+    border-color: var(--color-gold-rank);
+    box-shadow:
+      0 0 0 2px var(--color-surface-1),
+      0 0 0 4px var(--color-gold-rank),
+      0 0 26px -4px var(--color-primary-glow);
+  }
+
+  .rank-avatar-2 {
+    border-color: var(--color-silver-rank);
+    box-shadow:
+      0 0 0 2px var(--color-surface-1),
+      0 0 0 4px var(--color-silver-rank);
+  }
+
+  .rank-avatar-3 {
+    border-color: var(--color-bronze-rank);
+    box-shadow:
+      0 0 0 2px var(--color-surface-1),
+      0 0 0 4px var(--color-bronze-rank);
+  }
+
+  /* ——— Reakcije (Like / GG / Hype / Fire / Mind Blown) — interaktivne pilule ——— */
+  .reaction-btn {
+    transition:
+      background-color var(--dur-base) var(--ease-forge),
+      border-color var(--dur-base) var(--ease-forge),
+      color var(--dur-base) var(--ease-forge);
+  }
+
+  .reaction-btn:hover {
+    border-color: var(--color-border-strong);
+  }
+
+  .reaction-btn:active {
+    background: var(--color-surface-2);
+  }
+
+  .reaction-btn[aria-pressed='true'] {
+    border-color: var(--color-primary-fg);
+  }
+
+  /* ——— Kartice sekcija: unutrašnji vrh (newsletter, baza igara) ——— */
+  .ui-card-static {
+    position: relative;
+  }
+
+  /* ——— Navigacija: sticky glass header + akcenat po ZONI stavke ——— */
+  nav.sticky {
+    background: var(--glass-bg);
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    backdrop-filter: blur(var(--glass-blur));
+    border-bottom-color: var(--color-border-subtle);
+    box-shadow: 0 1px 0 var(--color-border-subtle);
+  }
+
+  /*
+   * NAV TICK — 2px indikator u boji zone stavke (`--nav-accent` se postavlja
+   * inline iz NAV_ITEMS): Forum = cyan, Popusti = amber, Rang lista = rose,
+   * ostalo = violet. Bez gradijenta i bez glow-a (glow je samo za CTA/aktivni
+   * tab, a više ih ionako ne sme biti na ekranu).
+   */
+  nav.sticky a[style*='--nav-accent'] .nav-tick {
+    position: absolute;
+    left: 0.75rem;
+    right: 0.75rem;
+    bottom: -9px;
+    height: 2px;
+    border-radius: var(--radius-sm);
+    background-color: var(--nav-accent, var(--color-primary));
+    transform: scaleX(0);
+    transform-origin: center;
+    transition: transform 220ms var(--ease-out-soft), opacity 220ms var(--ease-out-soft);
+    opacity: 0.7;
+  }
+
+  nav.sticky a[style*='--nav-accent']:hover .nav-tick,
+  nav.sticky a[style*='--nav-accent']:focus-visible .nav-tick {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+
+  /* Aktivna stavka: tick je UVEK vidljiv, u boji svoje zone */
+  nav.sticky a[aria-current='page'] .nav-tick {
+    transform: scaleX(1);
+    opacity: 1;
+    animation: navUnderline 320ms var(--ease-out-soft) both;
+  }
+
+  /* Stari gradientni indikator (span[aria-hidden]) više se ne renderuje */
+  nav.sticky a[aria-current="page"] > span[aria-hidden="true"].nav-tick {
+    background-image: none;
+  }
+
+  /* Suptilni sjaj iznad aktivne linije — uklonjen (jedan akcent, bez glow-a) */
+  nav.sticky a[aria-current="page"]::after {
+    content: none;
+  }
+
+  @keyframes navUnderline {
+    from { transform: scaleX(0); opacity: 0.4; }
+    to { transform: scaleX(1); opacity: 1; }
+  }
+
+  /* MICRO-BAR — uklonjen (5.7): chip bez spomenutog top bara je mrtav kod.
+     Držimo ga ovde dok ne potvrdimo da nigde drugde ne koristimo klasu. */
+
+  /*
+   * Desna grupa u navbaru na uskim ekranima (360–400 px): gost ne vidi „Prijava“
+   * (ima je u meniju i na tab traci: Profil → /login), a hamburger je jedini
+   * link na {`/admin/reports`} pa za admina/moderatora ostaje vidljiv i na desktopu.
+   */
+  /*
+   * Gost ne dobija `Prijava` kao CTA na 360–400 px (ima je u meniju i na tab traci:
+   * Profil → /login). Desna grupa na uskim ekranima ostaje mirna.
+   *
+   * 3.0.0 — `lg` a ne `sm`: nav je vidljiv od 1024 px, a `br-primary` koji se
+   * pojavljuje ISPOD preloma ne sme da se broji u "above-the-fold" akcent.
+   */
+  @media (max-width: 1023.98px) {
+    .navbar-actions .navbar-login {
+      display: none !important;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .navbar-actions .admin-menu-toggle {
+      display: inline-flex;
+    }
+  }
+
+  /* Mobilna tab traka — neprozirna traka (bez backdrop-filtera: samo Navbar/Modal/Drawer/Toast) */
+  .mobile-tabbar {
+    background: var(--color-surface-1) !important;
+  }
+
+  /* ——— Footer: mirna površina, bez glass-a i gradijenta ——— */
+  .forge-footer {
+    position: relative;
+    background: var(--color-surface-0);
+    border-top: 1px solid var(--color-border-subtle);
+  }
+
+  .forge-footer::before {
+    content: none;
+  }
+
+  /* Footer: tiha 1px linija na vrhu (bez trake u boji) */
+  .forge-footer {
+    border-top-color: var(--color-border-subtle) !important;
+  }
+
+  /* =========================================================
+     AUTH PODSTRANICE (F-03): forgot / reset / verify / newsletter
+     ========================================================= */
+
+  /* Jedna kolona — bez login/register tabova, bez saleviša brand panela. */
+  .auth-shell.auth-shell-single {
+    width: min(100%, 460px);
+  }
+
+  .auth-shell.auth-shell-single .auth-card {
+    flex: 1 1 100%;
+  }
+
+  @media (min-width: 768px) {
+    .auth-shell.auth-shell-single .auth-aside {
+      display: none;
+    }
+  }
+
+  .auth-result {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 1rem 1.125rem;
+    margin-bottom: 1rem;
+    border: 1px solid var(--color-success-glow);
+    border-radius: var(--radius-md);
+    background: var(--color-surface-1);
+    color: var(--color-text-secondary);
+    font-size: var(--text-meta);
+    line-height: 1.55;
+  }
+
+  .auth-result-heading {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--color-success-fg);
+    font-weight: 600;
+  }
+
+  .auth-result-heading svg {
+    flex: 0 0 auto;
+  }
+
+  /* Dev-only prikaz tokena (samo NODE_ENV=development + DEV_EXPOSE_TOKENS=1) */
+  .auth-dev-token {
+    display: block;
+    padding: 0.5rem 0.625rem;
+    border: 1px dashed var(--color-border-strong);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface-0);
+    color: var(--color-text-primary);
+    font-family: var(--font-family-mono);
+    font-size: 0.75rem;
+    line-height: 1.5;
+    word-break: break-all;
+  }
+
+  .auth-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 1.5rem 0;
+    color: var(--color-text-secondary);
+    font-size: 0.8125rem;
+  }
+
+  .auth-loading svg {
+    animation: spinRing 0.9s linear infinite;
+  }
+
+  .auth-inline-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+  }
+
+  .auth-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+    margin-top: 1rem;
+  }
+
+  .auth-actions .auth-submit {
+    text-decoration: none;
+  }
+
+  /* =========================================================
+     NEXUS PREMIUM 2.5.3 — završni vizuelni sloj
+     Samo boje, senke, gradijenti, tipografija i transform/opacity
+     animacije. Nema promena strukture, teksta, rutiranja, API-ja
+     ni funkcionalnosti. Nijedna dimenzija (padding/margin/gap/
+     grid/width/height) nije izmenjena u ovom sloju.
+     ========================================================= */
+
+  /* ——— Kartice su neprozirne (bez glass-a) ——— */
+
+  /* ——— Kartice vesti: zoom slike na hover, bez senke/ivice ——— */
+  /* Tailwind `group-hover:scale-[1.03]` već živi na <img>, pa ovaj sloj
+     pojačava postojeći hover umesto da ga duplira (nema sudara transitiona). */
+  .ui-card-interactive:hover img,
+  .group:hover > img,
+  .group:hover img {
+    transform: scale(1.03);
+  }
+
+  .ui-card-interactive img,
+  .group img {
+    transition: transform 520ms var(--ease-out-soft);
+  }
+
+  /* ——— Hero sekcija: bez dodatne senke (kartica je već 1px ivica) ——— */
+  section[aria-labelledby="featured-title"] {
+    position: relative;
+  }
+
+  /* ——— Ticker traka: hover menja samo boju ——— */
+  .ticker-wrap > .ticker-track > a:hover > span:last-child {
+    color: var(--color-text-primary);
+  }
+
+  /* ——— „Vrele teme" tačkica ——— */
+  .nx-hot-dot {
+    position: relative;
+  }
+
+  .nx-hot-dot::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: var(--color-tertiary);
+    animation: hotPing 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+    pointer-events: none;
+  }
+
+  /* ——— FEATURED bedž: neon zlatni puls (box-shadow, bez layout-a) ——— */
+  .nx-featured-pulse {
+    animation: featuredPulse 3.4s ease-in-out infinite;
+  }
+
+  @keyframes featuredPulse {
+    0%, 100% { box-shadow: inset 0 0 12px var(--color-tertiary-glow), 0 0 12px var(--color-tertiary-glow); }
+    50% { box-shadow: inset 0 0 16px rgba(168, 85, 247, 0.24), 0 0 24px var(--color-tertiary-glow); }
+  }
+
+  /* ——— Stagger ulaz (CSS-only): kartice u gridovima se pojavljuju jedna za drugom ———
+     Delay je 0–400ms; animiraju se samo opacity i transform. */
+  @keyframes riseIn {
+    from { opacity: 0; transform: translateY(14px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .grid > .ui-card,
+  .grid > .forum-cat-card,
+  .grid > a.ui-card,
+  .grid > .profile-stat-cell,
+  .grid > .profile-platform-tile {
+    animation: cyberFadeUp 400ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  /* whileInView blokovi (framer-motion) — bez zadržanog transforma */
+  [data-framer-name],
+  .nx-reveal-block {
+    will-change: auto;
+  }
+
+  .grid > :nth-child(1) { animation-delay: 0ms; }
+  .grid > :nth-child(2) { animation-delay: 70ms; }
+  .grid > :nth-child(3) { animation-delay: 140ms; }
+  .grid > :nth-child(4) { animation-delay: 210ms; }
+  .grid > :nth-child(5) { animation-delay: 280ms; }
+  .grid > :nth-child(6) { animation-delay: 350ms; }
+  .grid > :nth-child(n+7) { animation-delay: 400ms; }
+
+  /* ——— Sekcije: tihi ulaz naslova (bez layout shift-a) ——— */
+  .section-head,
+  .page-title {
+    animation: riseIn 480ms var(--ease-out-soft) both;
+  }
+
+  /* ——— Naslovi tema/vesti: zlatna nijansa na hover već postoji — dopuna suptilnim sjajem ——— */
+  .card-title-link:hover,
+  .group:hover .card-title-link {
+    text-shadow: 0 0 18px rgba(224, 176, 58, 0.22);
+  }
+
+  /* ——— Naslovi kartica: hover samo menja boju (violet), bez sjaja i zlatne nijanse ——— */
+  .leader-row:hover .leader-name {
+    color: var(--color-primary-fg);
+  }
+
+  /* ——— Prazna stanja: naslov i tekst sa toplim akcentom ——— */
+  .ui-state-title {
+    letter-spacing: 0.01em;
+  }
+
+  .ui-state-box .ui-state-title svg {
+    color: var(--color-primary-hover);
+  }
+
+  /* ——— Forma za odgovor / novu temu: mirna površina (bez glass-a) ——— */
+  form.animate-fade-in,
+  #new-thread-form {
+    background: var(--color-surface-1);
+  }
+
+  textarea.ui-field:focus,
+  input.ui-field:focus {
+    background-color: var(--color-surface-2);
+  }
+
+  /* ——— Mod panel / opasne akcije: crveni neon rub ——— */
+  .border-\[var\(--color-error\)\]\/30,
+  .border-\[var\(--color-error\)\]\/35 {
+    box-shadow: inset 0 0 18px rgba(196, 92, 92, 0.08);
+  }
+
+  /* ——— Reduced motion: isključi sve nove animacije ——— */
+  @media (prefers-reduced-motion: reduce) {
+    .ticker-track,
+    .nx-online-pulse::after,
+    .nx-hot-pulse,
+    .nx-hot-dot::after,
+    .nx-featured-pulse,
+    .profile-xp-fill,
+    .profile-xp-fill::after,
+    .profile-cover::before,
+    .ui-state-icon,
+    .empty-icon,
+    .grid > .ui-card,
+    .grid > .forum-cat-card,
+    .grid > a.ui-card,
+    .grid > .profile-stat-cell,
+    .grid > .profile-platform-tile,
+    .section-head,
+    .page-title,
+    body,
+    .ui-card-interactive:hover img,
+    .group:hover img {
+      animation: none !important;
+    }
+
+    body {
+      background-position: center !important;
+    }
+
+    .ui-card-interactive:hover,
+    .forum-cat-card:hover,
+    .forum-row:hover,
+    .profile-platform-tile:hover,
+    .profile-stat-cell:hover,
+    .profile-avatar-frame:hover,
+    .profile-badge-pill:hover,
+    .br-primary:hover:not(:disabled),
+    .btn-primary:hover,
+    .ui-icon-btn:hover {
+      transform: none !important;
+    }
+
+    .ui-card-interactive:hover img,
+    .group:hover img {
+      transform: none !important;
+    }
+
+    .btn-primary::after,
+    .br-primary::after,
+    .auth-submit::after {
+      display: none !important;
+    }
+  }
+
+  /* ——— Print: nema glass/glow artefakata ——— */
+  @media print {
+    .ui-card,
+    .ui-card-static,
+    .ui-card-elevated,
+    .forum-cat-card,
+    .profile-hero,
+    .auth-shell,
+    .auth-card,
+    .terms-modal,
+    .ui-modal-panel {
+      -webkit-backdrop-filter: none !important;
+      backdrop-filter: none !important;
+      box-shadow: none !important;
+    }
+  }
+
+  /* =========================================================
+     OBSIDIAN CYBER-PULSE 3.0 — finalni vizuelni sloj
+     Samo boje, gradijenti, senke, glass, tipografija i
+     transform/opacity animacije. Nijedan tekst, ruta, API poziv,
+     prop ili polje nije izmenjeno.
+     ========================================================= */
+
+  /* ——— PAGE / SECTION ENTRY: fade-in-up (opacity 0→1, translateY 12px→0) ——— */
+  @keyframes cyberFadeUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /*
+   * Kartice (i njihovi grid-roditelji) imaju SVOJU, izlaznu animaciju iz kit-a
+   * (`riseIn` na `.grid > .ui-card` / `.forum-cat-card`…). Ako bi roditelj dobio
+   * page-entry transform, postao bi containing block i pokvario mrtva hover
+   * stanja — zato grid-roditelji nikad ne primaju page-entry animaciju.
+   */
+  #main-content .grid,
+  #main-content [class*='grid-cols'] {
+    animation: none !important;
+  }
+
+  .nx-page-enter {
+    animation: cyberFadeUp 400ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  /*
+   * Page & section entry — namerno SAMO na naslovima/headerima, nikad na
+   * velikim kontejnerima: animirani `transform` na pretku pravi containing block
+   * i lomi sticky pozicioniranje i unutrašnja `:hover` stanja (kartice bi
+   * ostale zaglavljene na opacity 0 kada grid ima svoj `riseIn`).
+   */
+  #main-content > div > .container > .section-head,
+  #main-content > div > .container > header {
+    animation: cyberFadeUp 400ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  /*
+   * Grid-roditelji NIKAD ne dobijaju entry transform: novi containing block bi
+   * pokvario sticky sidebar, `whileInView` detekciju i unutrašnja `:hover` stanja.
+   */
+  #main-content .grid,
+  #main-content [class*='grid-cols'] {
+    animation: none !important;
+  }
+
+  /* Article view: naslov i telo članka ulaze zajedno sa stranicom */
+  #main-content > div > .container > .nx-page-enter article {
+    animation: none;
+  }
+
+  #main-content .nx-page-enter {
+    animation: cyberFadeUp 400ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  /* ——— CARD HOVER: samo ivica (bez lift-a, bez glow-a) ——— */
+  .ui-card-interactive,
+  .forum-cat-card,
+  .podium-card,
+  .cyber-card {
+    transition:
+      border-color 200ms var(--ease-forge),
+      background-color 200ms var(--ease-forge);
+  }
+
+  .ui-card-interactive:hover,
+  a.ui-card:hover,
+  a.ui-card-static:hover,
+  .podium-card:hover {
+    border-color: var(--color-border-strong);
+  }
+
+  /* ——— KARTICE: radius lg (14 px) ——— */
+  .ui-card,
+  .ui-card-static,
+  .cyber-card,
+  .card {
+    border-radius: var(--radius-lg);
+  }
+
+  /* ——— IMAGE ZOOM na karticama vesti ——— */
+  .ui-card-interactive img,
+  .group img {
+    transition: transform 500ms cubic-bezier(0.16, 1, 0.3, 1) !important;
+  }
+
+  .ui-card-interactive:hover img,
+  .group:hover img {
+    transform: scale(1.03);
+  }
+
+  /* ——— ROLE EMBLEM: hover menja samo boju ivice ——— */
+  .role-emblem {
+    transition: border-color 220ms ease;
+  }
+
+  /* ——— TOP 5 „Najčitanije“: mirni mono brojevi ——— */
+  #main-content ol .group > span:first-child,
+  aside ol .group > span:first-child {
+    font-family: var(--font-family-mono) !important;
+    font-size: var(--text-meta) !important;
+    font-weight: 600 !important;
+    line-height: 1 !important;
+    letter-spacing: -0.02em;
+    background-image: none;
+    color: var(--color-text-tertiary) !important;
+    filter: none;
+  }
+
+  #main-content ol .group:hover > span:first-child,
+  aside ol .group:hover > span:first-child {
+    color: var(--color-text-secondary) !important;
+  }
+
+  /* ——— FORUM: kvadrite ikonice kategorija ——— */
+  .forum-cat-icon {
+    border-radius: var(--radius-md);
+  }
+
+  /* ——— LISTE/VODIČI: suptilna violet nit umesto ravnog sivog bordera ——— */
+  #main-content section > .border-t,
+  #main-content .container > .border-t {
+    border-top-color: var(--color-border-default);
+  }
+
+  /* ——— FORUM NA POČETNOJ: kartice diskusija — zla hover nit u cyanu ——— */
+  #discussions-title {
+    scroll-margin-top: 6rem;
+  }
+
+  /* ——— NESTED REPLIES: vertikalna vodilja ——— */
+  .nx-nested-reply {
+    transition: border-color 250ms ease;
+    border-left-color: var(--color-border-default) !important;
+  }
+
+  .nx-nested-reply:hover {
+    border-left-color: var(--color-border-strong) !important;
+  }
+
+  /* ——— MODERATOR / MOD bedževi: ista violet paleta ——— */
+  .role-frame-mod {
+    --role-glow: var(--color-primary-glow);
+  }
+
+  .role-emblem:hover {
+    box-shadow: none;
+  }
+
+  /* ——— AUTH: tab prebacivač ——— */
+  .auth-tabs {
+    background: var(--color-surface-1);
+    border-color: var(--color-border-default) !important;
+  }
+
+  /* ——— REDUCED MOTION: sve novo pada na statično ——— */
+  @media (prefers-reduced-motion: reduce) {
+    .nx-page-enter,
+    #main-content .nx-page-enter,
+    #main-content > div > .container > .section-head,
+    #main-content > div > .container > header,
+    #main-content > div > .container > article,
+    .podium-card--winner img,
+    .reaction-btn:hover {
+      animation: none !important;
+    }
+
+    .ui-card-interactive:hover,
+    a.ui-card:hover,
+    .podium-card:hover,
+    .reaction-btn:hover {
+      transform: none !important;
+    }
+  }
+
+
+  /* ==========================================================================
+     „ONLINE SADA“ — zeleni prsten na avatarima (2.6.1)
+     --------------------------------------------------------------------------
+     Prsten je `box-shadow` (ne border) da ne menja dimenzije slike i da ostane
+     iznad bilo kog postojećeg okvira. Boja je isključivo semantička `success`;
+     tekstualni ekvivalent daje `title`/`aria-label` iz `OnlineAvatar`.
+     ========================================================================== */
+
+  /* 2px zeleni prsten (status „online“, bez glow-a) */
+  .online-avatar.is-online {
+    box-shadow:
+      0 0 0 2px var(--color-surface-0),
+      0 0 0 4px var(--color-success);
+    transition: box-shadow var(--dur-base, 180ms) var(--ease-forge, ease);
+  }
+
+  /* Profilni hero: prsten ne sme da dira okvir uloge (`::after` sa `inset: 0`) */
+  .profile-avatar-frame .online-avatar.is-online {
+    box-shadow:
+      0 0 0 2px var(--color-surface-2),
+      0 0 0 4px var(--color-success);
+  }
+
+  /* 2.6.2 — „away“: ista geometrija, jantara boja (tab je otvoren, ali nije aktivan).
+     Boja nije jedini signal — `title`/`aria-label` kaže „Prisutan, neaktivan“. */
+  .online-avatar.is-away {
+    box-shadow:
+      0 0 0 2px var(--color-surface-0),
+      0 0 0 4px var(--color-warning),
+      0 0 14px -2px color-mix(in srgb, var(--color-warning) 60%, transparent);
+    transition: box-shadow var(--dur-base, 180ms) var(--ease-forge, ease);
+  }
+
+  .profile-avatar-frame .online-avatar.is-away {
+    box-shadow:
+      0 0 0 2px var(--color-surface-2),
+      0 0 0 4px var(--color-warning),
+      0 0 20px -4px var(--color-warning);
+  }
+
+  .online-avatar-frame {
+    position: relative;
+    display: inline-flex;
+    flex-shrink: 0;
+  }
+
+  /* Tačkica „online“ — statična, bez pulsa: prsten već nosi status */
+  .online-dot {
+    position: absolute;
+    right: -1px;
+    bottom: -1px;
+    width: 9px;
+    height: 9px;
+    border-radius: 999px;
+    background: var(--color-success);
+    box-shadow: 0 0 0 2px var(--color-surface-0);
+    pointer-events: none;
+  }
+
+  .online-dot.is-away {
+    background: var(--color-warning);
+  }
+
+  /* Značka „Online“ pored imena (koristi se u meta redu, opciono) */
+  .online-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--color-success) 45%, transparent);
+    background: color-mix(in srgb, var(--color-success) 14%, transparent);
+    padding: 0.125rem 0.5rem;
+    font-size: 12px;
+    font-weight: 600;
+    color: #a7f3d0;
+  }
+
+  .online-pill::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--color-success);
+    box-shadow: 0 0 8px var(--color-success);
+  }
+}
+
+  /* ==========================================================================
+     ZONSKE SEKCIJE (Neon Editorial) — diskretni 3px vertikalni „rail“ lijevo od
+     naslova sekcije, u boji zone. `--section-accent` se postavlja inline u TSX-u
+     (SectionHeader `accent` prop), pa nema novih hex vrednosti u komponentama.
+     ========================================================================== */
+  .section-head[style*='--section-accent'] .section-head-main {
+    position: relative;
+    padding-left: 0.875rem;
+  }
+
+  .section-head[style*='--section-accent'] .section-head-main::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0.125rem;
+    bottom: 0.125rem;
+    width: 3px;
+    border-radius: var(--radius-sm);
+    background: var(--section-accent, var(--color-primary));
+  }
+
+  /* Zonski eyebrow: ista boja kao rail (cyan/amber/emerald/violet) */
+  .section-head[style*='--section-accent'] .section-head-main .eyebrow {
+    color: var(--section-accent, var(--color-primary));
+  }
+
+  /* Eyebrow kategorije na karticama vesti — boja zone (fallback: violet) */
+  .story-eyebrow {
+    color: var(--story-accent, var(--color-primary-fg));
+  }
+
+  /* Deals: amber podvlaka ispod naslova sekcije (samo iznad < 4rem) */
+  .deals-heading {
+    padding-bottom: 0.625rem;
+    border-bottom: 2px solid var(--color-deal);
+  }
+
+  /*
+   * Deals zaglavlje: suptilni amber veo (`--gradient-deal`) iza naslova;
+   * linija na dnu ostaje neutralna, da amber ne bude „težak“ blok.
+   */
+  .deals-section-header {
+    background-image: var(--gradient-deal);
+    border-bottom: 1px solid var(--color-border-subtle);
+  }
+
+  /* Forum u fokusu: emerald zona (eyebrow + ikona reda) */
+  .zone-community .eyebrow,
+  .zone-community .thread-row-icon {
+    color: var(--color-community-fg);
+  }
+
+  .zone-community .thread-row-icon {
+    background: var(--color-success-glow);
+    border: 1px solid var(--color-success-glow);
+  }

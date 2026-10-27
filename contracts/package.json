@@ -1,0 +1,12 @@
+﻿{
+  "name": "nexus-contracts",
+  "private": true,
+  "type": "module",
+  "description": "N10 — deljeni API ugovor (Zod šeme + z.infer tipovi) za server i frontend.",
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./package.json": "./package.json"
+  }
+}

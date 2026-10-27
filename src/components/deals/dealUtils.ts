@@ -82,8 +82,44 @@ export const isExpiringSoon = (deal: Pick<Deal, 'expiresAt' | 'status'>, now = D
   return new Date(deal.expiresAt).getTime() - now <= 72 * 60 * 60 * 1000;
 };
 
+/**
+ * U-09 — „ističe danas“ je prioritet, ne jedan od filtera.
+ * Vraća broj sati do isteka (0–24) ili `null` kad deal nije urgentan.
+ * Granica je 24 h, pa i deal koji ističe u 23:59 sutra ulazi u „dan danas“ —
+ * to je namerno: korisnik donosi odluku u roku od jednog dana.
+ */
+export function hoursLeft(expiresAt: string | null | undefined, now = Date.now()): number | null {
+  if (!expiresAt) return null;
+  const left = new Date(expiresAt).getTime() - now;
+  if (!Number.isFinite(left) || left <= 0) return null;
+  const hours = Math.ceil(left / 3_600_000);
+  return hours <= 24 ? hours : null;
+}
+
+/** Label za urgency badge („ističe danas“ / „još 6 h“). */
+export function expiresTodayLabel(hours: number | null): string | null {
+  if (hours === null) return null;
+  return hours <= 1 ? 'ističe za sat' : hours < 6 ? `još ${hours} h` : 'ističe danas';
+}
+
+/**
+ * U-09 — klijentsko sortiranje za glavni scenario „nađi dobar deal sada“:
+ * prvo deal-ovi koji ističu u naredna 24 h (među njima veći popust), zatim
+ * ostali po popustu. Server i dalje sortira (URL je izvor istine), ovo je
+ * samo stabilizacija prve strane pre renderovanja.
+ */
+export function sortForDiscovery(deals: Deal[], now = Date.now()): Deal[] {
+  return [...deals].sort((a, b) => {
+    const aUrgent = hoursLeft(a.expiresAt, now) !== null ? 1 : 0;
+    const bUrgent = hoursLeft(b.expiresAt, now) !== null ? 1 : 0;
+    if (aUrgent !== bUrgent) return bUrgent - aUrgent;
+    if (b.discountPct !== a.discountPct) return b.discountPct - a.discountPct;
+    return b.score - a.score;
+  });
+}
+
 /** „Ističe za 5h“ / „za 3 dana“ / „istekao“. */
-export function timeLeft(expiresAt: string | null, now = Date.now()): string | null {
+export function timeLeft(expiresAt: string | null | undefined, now = Date.now()): string | null {
   if (!expiresAt) return null;
   const left = new Date(expiresAt).getTime() - now;
   if (Number.isNaN(left)) return null;

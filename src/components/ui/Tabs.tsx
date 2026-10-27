@@ -14,6 +14,11 @@ export interface TabsProps<T extends string = string> {
   onChange: (value: T) => void;
   /** `pills` = segmenti (filteri), `underline` = tabovi sekcije. */
   variant?: 'pills' | 'underline';
+  /**
+   * Aktivni ton: `primary` = violet (podrazumevano), `deal` = amber sa tamnim
+   * tekstom (filteri unutar zona popusta).
+   */
+  tone?: 'primary' | 'deal';
   ariaLabel: string;
   className?: string;
 }
@@ -22,7 +27,7 @@ export interface TabsProps<T extends string = string> {
  * Tabs — pristupačan tablist (strelica levo/desno, Home/End),
  * jedan izvor stilova za sve tabove u aplikaciji.
  */
-export function Tabs<T extends string = string>({ items, value, onChange, variant = 'pills', ariaLabel, className }: TabsProps<T>) {
+export function Tabs<T extends string = string>({ items, value, onChange, variant = 'pills', tone = 'primary', ariaLabel, className }: TabsProps<T>) {
   const listRef = useRef<HTMLDivElement>(null);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -59,7 +64,7 @@ export function Tabs<T extends string = string>({ items, value, onChange, varian
             aria-selected={active}
             tabIndex={active ? 0 : -1}
             onClick={() => onChange(item.id)}
-            className={cn('ui-tab', active && 'is-active')}
+            className={cn('ui-tab', active && (tone === 'deal' ? 'is-active-deal' : 'is-active'))}
           >
             {item.icon}
             <span>{item.label}</span>

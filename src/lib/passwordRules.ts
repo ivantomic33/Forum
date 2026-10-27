@@ -2,7 +2,7 @@
  * Pravila lozinke — JEDNA politika za UI i za lokalnu proveru (F-14).
  *
  * Ranije su se razlikovala: front je zahtevao 6 znakova + veliko slovo (uz
- * pokvaren regex `[A-ZČĆÅ½Å Ä]`), a server 8 znakova + slovo + broj + listu
+ * pokvaren regex `[A-ZČĆŠŽĐ]`), a server 8 znakova + slovo + broj + listu
  * čestih lozinki. Posledica: forma je prikazivala „ispravna“, a server odbija.
  *
  * Sada je politika identična `server/lib/validation.ts`.

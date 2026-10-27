@@ -43,3 +43,10 @@ if (problems) {
 } else {
   console.log('OK — nema `*-var(--color-*)` klasa.');
 }
+
+/**
+ * N-08 — pored Tailwind klasa proveri i CSS slojeve: broj konkretnih boja i
+ * senki van `src/styles/tokens.css` ne sme pasti ispod baseline-a. Novo
+ * povećanje `check-css-tokens.mjs` već prijavi sam (exit 1).
+ */
+await import('./check-css-tokens.mjs');

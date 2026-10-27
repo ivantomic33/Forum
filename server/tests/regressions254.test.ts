@@ -15,10 +15,14 @@ const { securityHeaders } = require('../../scripts/security-headers.mjs') as {
 describe('F-20 — CSP za frontend', () => {
   const headers = securityHeaders();
 
-  it('skripte su stroge: nema unsafe-inline ni unsafe-eval', () => {
+  it('skripte su stroge: nema unsafe-inline ni unsafe-eval (samo hash teme)', () => {
     const csp = headers['Content-Security-Policy'];
     const scriptSrc = csp.split(';').find((part) => part.trim().startsWith('script-src'));
-    expect(scriptSrc).toBe(" script-src 'self'");
+    // U-08 — jedina inline skripta je ona koja postavlja `data-theme` pre prvog
+    // paint-a; dozvoljena je SAMO kroz `sha256` hash (bez `unsafe-inline`).
+    expect(scriptSrc).toContain("'self'");
+    expect(scriptSrc).toContain("'sha256-");
+    expect(scriptSrc).not.toContain('unsafe-inline');
     expect(csp).not.toContain('unsafe-eval');
   });
 

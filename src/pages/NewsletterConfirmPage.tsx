@@ -45,14 +45,14 @@ export default function NewsletterConfirmPage() {
     return (
       <AuthShell
         title="Pretplata je potvrđena"
-        description="Od sada ćete primati NEXUS novosti i najave događaja."
+        description="Newsletter je ugašen — mejl se šalje samo za verifikaciju adrese i reset lozinke."
         success={
           <>
             <span className="auth-result-heading">
               <CheckCircle2 size={16} />
-              Dobrodošli u newsletter
+              Pretplata je zabeležena
             </span>
-            <span>Pretplatu možete odjaviti linkom iz svakog mejla.</span>
+            <span>Newsletter mejlovi se ne šalju — sve novosti stižu u aplikaciji.</span>
           </>
         }
         footer={

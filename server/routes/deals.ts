@@ -1,10 +1,12 @@
 import { Router } from 'express';
 import jwt from 'jsonwebtoken';
 import { z } from 'zod';
-import { db, uid } from '../lib/store.js';
+import { db, uid, type ArticleRecord } from '../lib/store.js';
 import { authenticate, authorize, requireVerified, type AuthRequest } from '../middleware/auth.js';
 import { sanitizeText } from '../middleware/sanitize.js';
 import { ACCESS_COOKIE } from '../lib/sessions.js';
+// B25 — iste srpske poruke kao u `validate()` (Zod4 bez `message` daje engleski).
+import { zodDetails, zodIssueMessage } from '../lib/schemas.js';
 import {
   DEAL_CURRENCIES,
   DEAL_LIMITS,
@@ -20,17 +22,23 @@ import {
 import { applyAuthorKarma } from '../lib/gamification.js';
 import { isOwnStorageUrl, storageConfigured } from '../lib/storage.js';
 import { notify } from '../lib/notifications.js';
+import { notifyPriceWatchers } from '../lib/priceAlerts.js';
 
 /**
  * DEALS / POPUSTI — `/api/deals`, `/api/games`
  * ---------------------------------------------
  *  GET    /api/deals                     lista (sort + filteri + paginacija)
  *  POST   /api/deals                     objava (auth + verifikovan email)
+ *  GET    /api/deals/daily               F-1 „Danas u gamingu“: 3 vesti + 2 deal-a + 2 teme
  *  GET    /api/deals/mine                moji deal-ovi (uključujući istekle)
  *  GET    /api/deals/:id                 detalj (+ myVote)
  *  PATCH  /api/deals/:id                 izmena (autor ili moderator)
  *  DELETE /api/deals/:id                 soft-delete (autor ili moderator)
  *  POST   /api/deals/:id/vote            glas (up/down/null)
+ *  POST   /api/deals/:id/claim           F-9 „Kupio sam“ (+ DELETE za poništavanje)
+ *  GET    /api/deals/watch              F-4 moja praćenja cena
+ *  POST   /api/deals/watch              F-4 prati igru ispod cene
+ *  DELETE /api/deals/watch/:id          F-4 prekini praćenje
  *  GET    /api/games                     katalog igara iz deals-a
  *  GET    /api/games/search?q=           pretraga igara u katalogu
  *  GET    /api/games/igdb?q=             IGDB pretraga (opciono, bez ključa vraća [])
@@ -180,6 +188,114 @@ router.get('/', async (req: AuthRequest, res, next) => {
   }
 });
 
+/* -------------------- F-1 — „Danas u gamingu“ -------------------- */
+
+type HomeArticle = ArticleRecord & { category?: string };
+
+/** Skup kategorija koje su „vesti“; ostalo (Recenzija, Liste…) je hijerarhijski niže. */
+const NEWS_CATEGORIES = new Set(['vesti', 'news', 'najave', 'hardware', 'hardver']);
+
+const scoreHomeArticle = (article: HomeArticle) =>
+  (article.isFeatured ? 2 : 0) +
+  Math.log10(Math.max(1, article.views ?? 0)) +
+  (NEWS_CATEGORIES.has(String(article.category ?? '').toLowerCase()) ? 1 : 0);
+
+/**
+ * „Najvažnije vesti“ = rang, ali sa raznolikošću kategorija: prvo po jedna iz
+ * svake (od najbolje rangirane), pa ostatak po rangu. Hero je već na stranici,
+ * pa ga blok preskače da se ne ponovi dva puta u istom ekranu.
+ */
+function pickImportant(articles: HomeArticle[], excludeId: string | undefined, take: number): HomeArticle[] {
+  const ranked = articles
+    .filter((article) => article.id !== excludeId)
+    .map((article) => ({ article, score: scoreHomeArticle(article) }))
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        String(b.article.publishedAt ?? b.article.createdAt).localeCompare(String(a.article.publishedAt ?? a.article.createdAt)),
+    )
+    .map((entry) => entry.article);
+
+  const picked: HomeArticle[] = [];
+  const seenCategories = new Set<string>();
+  for (const article of ranked) {
+    const key = String(article.category ?? '').toLowerCase();
+    if (seenCategories.has(key)) continue;
+    seenCategories.add(key);
+    picked.push(article);
+    if (picked.length >= take) break;
+  }
+  for (const article of ranked) {
+    if (picked.length >= take) break;
+    if (!picked.includes(article)) picked.push(article);
+  }
+  return picked;
+}
+
+// GET /api/deals/daily — F-1: jedan poziv za blok „Danas u gamingu“.
+//
+// Živi u `deals` ruteru da bi ga i frontend i prerender dobili kroz gateway
+// podsistem kao i sve ostalo; tri upita se izvršavaju paralelno, pa je API
+// vreme ≈ najsporiji upit, a ne zbir (ranije su početnu punile 3 nezavisne rute:
+// `/articles`, `/forum/:subforum/threads`, `/deals`).
+//
+// `?exclude=<articleId>` (hero sa ekrana) se prosleđuje jer se biranje najvažnijih
+// vesti ne može pouzdano obaviti na klijentu bez liste cele kategorije.
+router.get('/daily', async (req: AuthRequest, res, next) => {
+  try {
+    const viewer = await optionalViewer(req);
+    const excludeId = typeof req.query.exclude === 'string' ? req.query.exclude : undefined;
+
+    const [articles, dealsResult, threads] = await Promise.all([
+      db.articles.findAll({ status: 'published', publishedBefore: new Date().toISOString() }).catch(() => []),
+      db.deals.list({ sort: 'discount', limit: 12, offset: 0 }, viewer?.id).catch(() => ({ deals: [], total: 0 })),
+      db.forum.listThreads({ sort: 'hot', limit: 40 }).catch(() => []),
+    ]);
+
+    const important = pickImportant(articles as HomeArticle[], excludeId, 3);
+
+    // „Najbolji“ nije samo najveći popust: istekao ili uklonjen deal ne sme da
+    // uđe u blok, a pri izjednačenom popustu bolje prolazi bolje ocenjen.
+    const now = Date.now();
+    const topDeals = dealsResult.deals
+      .filter(
+        (deal) =>
+          deal.status === 'active' && (!deal.expiresAt || new Date(deal.expiresAt).getTime() > now),
+      )
+      .sort((a, b) => b.discountPct - a.discountPct || b.score - a.score)
+      .slice(0, 2);
+
+    // „Najživlje“ = odgovori + glasovi + pregledi (logaritamski, da jedan viralni
+    // thread sa 50k pregleda ne sakrije temu sa pravom diskusijom).
+    const liveliest = [...threads]
+      .filter((thread) => !thread.isDeleted)
+      .sort(
+        (a, b) =>
+          (b.replies ?? 0) + (b.karma ?? 0) + Math.log10(1 + (b.views ?? 0)) * 3 -
+          ((a.replies ?? 0) + (a.karma ?? 0) + Math.log10(1 + (a.views ?? 0)) * 3),
+      )
+      .slice(0, 2)
+      .map((thread) => ({
+        id: thread.id,
+        subforum: thread.subforum,
+        title: thread.title,
+        replies: thread.replies ?? 0,
+        views: thread.views ?? 0,
+        karma: thread.karma ?? 0,
+        lastReplyAt: thread.lastReplyAt,
+        isPinned: Boolean(thread.isPinned),
+      }));
+
+    res.json({
+      articles: important,
+      deals: await decorateAuthors(topDeals),
+      threads: liveliest,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /api/deals/preview?url= — 2.6.2: meta podaci ponude (naslov, og:image, cena)
 //
 // Serverski fetch, pa je obavezna prijava + rate limit po korisniku: ruta ne
@@ -211,6 +327,90 @@ router.get('/mine', authenticate, async (req: AuthRequest, res, next) => {
   }
 });
 
+/* ------------------ F-4 — praćenje cene igre ------------------ */
+
+//
+// Wishlist/price alert: korisnik prati IGRU (ne pojedinačni deal) sa pragom
+// cene. Kada se pojavi deal ispod praga, dobija mejl (Resend/Brevo kao i ostali
+// transakcioni mejlovi). Throttling: jedan mejl po (korisnik, igra) na 24 h, i
+// samo kada cena padne ISPOD prethodno obaveštene — inače bi svaki novi deal
+// iste prodavnice ponovo slao mejl.
+
+const watchBodySchema = z.object({
+  gameId: z.string().min(1, 'Izaberite igru.').optional(),
+  gameSlug: z.string().min(1).max(200).optional(),
+  gameTitle: z.string().min(1, 'Unesite naziv igre.').max(200).optional(),
+  targetPrice: z.number().positive('Cena mora biti veća od nule.').max(100_000),
+  currency: z.enum(DEAL_CURRENCIES as unknown as [string, ...string[]]).optional(),
+});
+
+router.get('/watch', authenticate, async (req: AuthRequest, res, next) => {
+  try {
+    const watches = await db.watches.list(req.user!.id);
+    res.json({ watches });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/watch', authenticate, requireVerified, async (req: AuthRequest, res, next) => {
+  try {
+    const parsed = watchBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: zodIssueMessage(parsed.error.issues[0]), details: zodDetails(parsed.error) });
+    }
+    const body = parsed.data;
+
+    // Igra može doći kao ID (`/games/:slug`), slug ili slobodan naslov.
+    let game = body.gameId ? await db.games.findById(body.gameId) : null;
+    if (!game && body.gameSlug) game = await db.games.findBySlug(body.gameSlug);
+    if (!game && body.gameTitle) {
+      const title = sanitizeText(body.gameTitle);
+      const slug = normalizeSlug(title);
+      game = slug ? await db.games.findBySlug(slug) : null;
+    }
+    const gameTitle = game?.title ?? sanitizeText(body.gameTitle ?? '');
+    if (!gameTitle) return res.status(400).json({ error: 'Igra nije pronađena.' });
+
+    // Ista igra dvaput → samo ažuriraj prag (nema duplih mejlova).
+    if (game) {
+      const existing = await db.watches.findByGame(req.user!.id, game.id);
+      if (existing) {
+        const updated = await db.watches.update(existing.id, {
+          targetPrice: body.targetPrice,
+          currency: body.currency ?? existing.currency,
+        });
+        return res.json({ watch: updated ?? existing, updated: true });
+      }
+    }
+
+    const watch = await db.watches.create({
+      id: uid('watch'),
+      userId: req.user!.id,
+      gameId: game?.id ?? null,
+      gameTitle,
+      gameSlug: game?.slug ?? null,
+      targetPrice: body.targetPrice,
+      currency: body.currency ?? 'EUR',
+      createdAt: new Date().toISOString(),
+      notifiedAt: null,
+    });
+    res.status(201).json({ watch, updated: false });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete('/watch/:id', authenticate, async (req: AuthRequest, res, next) => {
+  try {
+    const removed = await db.watches.remove(req.user!.id, req.params.id);
+    if (!removed) return res.status(404).json({ error: 'Praćenje nije pronađeno.' });
+    res.json({ removed: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /api/deals/:id — detalj
 router.get('/:id', async (req: AuthRequest, res, next) => {
   try {
@@ -233,8 +433,8 @@ router.get('/:id', async (req: AuthRequest, res, next) => {
 /* ---------------------------- Objava / izmena ---------------------------- */
 
 const dealBodySchema = z.object({
-  title: z.string().max(DEAL_LIMITS.titleMax + 20).optional(),
-  url: z.string().max(2048).optional(),
+  title: z.string().max(DEAL_LIMITS.titleMax + 20, 'Naslov ponude je predugačak').optional(),
+  url: z.string().max(2048, 'URL je predugačak').optional(),
   /** Dokaz je URL; `data:image` se prihvata samo dok Storage nije podešen. */
   proofUrl: z
     .string()
@@ -247,9 +447,13 @@ const dealBodySchema = z.object({
   price: z.union([z.number(), z.string()]).optional(),
   originalPrice: z.union([z.number(), z.string()]).optional(),
   currency: z.enum(DEAL_CURRENCIES as unknown as [string, ...string[]]).optional(),
-  store: z.string().max(DEAL_LIMITS.storeMax + 20).optional(),
-  platform: z.string().max(DEAL_LIMITS.platformMax + 10).optional(),
-  description: z.string().max(DEAL_LIMITS.descriptionMax + 100).nullable().optional(),
+  store: z.string().max(DEAL_LIMITS.storeMax + 20, 'Naziv prodavnice je predugačak').optional(),
+  platform: z.string().max(DEAL_LIMITS.platformMax + 10, 'Naziv platforme je predugačak').optional(),
+  description: z
+    .string()
+    .max(DEAL_LIMITS.descriptionMax + 100, 'Opis je predugačak')
+    .nullable()
+    .optional(),
   expiresAt: z.string().nullable().optional(),
   gameId: z.string().max(100).nullable().optional(),
   gameTitle: z.string().max(200).nullable().optional(),
@@ -270,7 +474,11 @@ router.post('/', authenticate, requireVerified, async (req: AuthRequest, res, ne
   try {
     const parsed = dealBodySchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Neispravan zahtev.' });
+      // B25 — Zod poruke idu kroz isti srpski prevod kao `validate()`.
+      return res.status(400).json({
+        error: zodIssueMessage(parsed.error.issues[0]),
+        details: zodDetails(parsed.error),
+      });
     }
     const body: any = parsed.data;
 
@@ -344,6 +552,8 @@ router.post('/', authenticate, requireVerified, async (req: AuthRequest, res, ne
     });
 
     req.log?.info({ dealId: deal.id, gameId }, 'deal_created');
+    // F-4 — obavesti one koji prate igru; ne čeka se (mejl ne sme da odloži odgovor).
+    void notifyPriceWatchers(deal.id);
     // `create` vraća zapis bez relacija — dovuci igru da odgovor bude isti kao `GET /deals/:id`.
     const created = (await db.deals.findById(deal.id, req.user!.id)) ?? deal;
     const [decorated] = await decorateAuthors([created]);
@@ -364,7 +574,11 @@ router.patch('/:id', authenticate, async (req: AuthRequest, res, next) => {
 
     const parsed = dealBodySchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ error: parsed.error.issues[0]?.message ?? 'Neispravan zahtev.' });
+      // B25 — Zod poruke idu kroz isti srpski prevod kao `validate()`.
+      return res.status(400).json({
+        error: zodIssueMessage(parsed.error.issues[0]),
+        details: zodDetails(parsed.error),
+      });
     }
     const body: any = parsed.data;
 
@@ -403,6 +617,8 @@ router.patch('/:id', authenticate, async (req: AuthRequest, res, next) => {
       isVerified: isStaff(req.user!.role) ? deal.isVerified : false,
     });
     req.log?.info({ dealId: deal.id, editedBy: req.user!.id }, 'deal_updated');
+    // F-4 — nova (niža) cena na postojećem deal-u takođe pokreće obaveštenje.
+    void notifyPriceWatchers(deal.id);
     const [decorated] = await decorateAuthors([updated!]);
     res.json({ deal: decorated });
   } catch (err) {
@@ -429,6 +645,38 @@ router.delete('/:id', authenticate, async (req: AuthRequest, res, next) => {
 });
 
 /* ---------------------------- Glasanje ---------------------------- */
+
+/* ------------------- F-9 — „Kupio sam“ oznaka ------------------- */
+
+/**
+ * F-9 — socijalni dokaz bez pretenzije na verifikaciju: ko klikne potvrđuje da
+ * je kupio preko ovog deal-a. Idempotentno (UNIQUE deal+user), pa dvostruki
+ * klik (ili dva taba) ne naduvava broj. Gost ne može da potvrdi.
+ */
+router.post('/:id/claim', authenticate, requireVerified, async (req: AuthRequest, res, next) => {
+  try {
+    const deal = await db.deals.findById(req.params.id);
+    if (!deal || deal.status === 'removed') return res.status(404).json({ error: 'Deal nije pronađen.' });
+    if (deal.authorId === req.user!.id) {
+      return res.status(400).json({ error: 'Ne možete potvrditi kupovinu preko sopstvenog deal-a.' });
+    }
+    const result = await db.deals.claim(req.user!.id, deal.id);
+    if (!result.claimed) return res.status(503).json({ error: 'Oznake trenutno nisu dostupne. Pokušajte kasnije.' });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete('/:id/claim', authenticate, async (req: AuthRequest, res, next) => {
+  try {
+    const deal = await db.deals.findById(req.params.id);
+    if (!deal) return res.status(404).json({ error: 'Deal nije pronađen.' });
+    res.json(await db.deals.unclaim(req.user!.id, deal.id));
+  } catch (err) {
+    next(err);
+  }
+});
 
 // POST /api/deals/:id/vote — up / down / null (toggle)
 router.post('/:id/vote', authenticate, requireVerified, async (req: AuthRequest, res, next) => {

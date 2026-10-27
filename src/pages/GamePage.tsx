@@ -6,10 +6,13 @@ import { CalendarDays, Gamepad2, ImagePlus, Plus, Tag } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuthStore } from '../store/authStore';
 import { usePageMeta } from '../lib/pageMeta';
+import { useT, localeTag, getLocale } from '../lib/i18n';
 import { Badge, Button, EmptyState, ErrorState, Skeleton } from '../components/ui';
 import { DealCard, DealWarning } from '../components/deals/DealCard';
 import { DealForm } from '../components/deals/DealForm';
+import { PriceWatchButton } from '../components/deals/PriceWatchButton';
 import { formatPrice } from '../components/deals/dealUtils';
+import { GuidesSection } from '../components/guides/GuideWidgets';
 
 /**
  * `/games/:slug` — Game Page.
@@ -18,6 +21,8 @@ import { formatPrice } from '../components/deals/dealUtils';
  * Diskusije i LFG se kasnije kače kao nove sekcije bez menjanja ove rute.
  */
 export default function GamePage() {
+  const t = useT();
+  const locale = getLocale();
   const { slug = '' } = useParams();
   const navigate = useNavigate();
   const { isAuthenticated, user } = useAuthStore();
@@ -41,7 +46,10 @@ export default function GamePage() {
       ? `Aktivni popusti za ${game.title}: gde je najjeftinije, cene po prodavnicama i glasovi zajednice.`
       : 'Igra sa aktivnim popustima.',
     path: `/games/${slug}`,
-    image: game?.coverUrl ?? undefined,
+    // N-13 — OG slika se generiše na serveru u 1200×630 (cover ostaje kartica).
+    image: game
+      ? `/api/og/article/cover?src=${encodeURIComponent(game.coverUrl ?? '')}&title=${encodeURIComponent(game.title)}`
+      : undefined,
   });
 
   const bestPrice = deals.length ? Math.min(...deals.map((deal) => deal.price)) : null;
@@ -66,9 +74,9 @@ export default function GamePage() {
       await api.games.setCover(slug, uploaded.url);
       await queryClient.invalidateQueries({ queryKey: ['game', slug] });
       await queryClient.invalidateQueries({ queryKey: ['games'] });
-      toast.success('Cover je ažuriran.');
+      toast.success(t('games.coverUpdated'));
     } catch (err: any) {
-      toast.error(err?.message || 'Cover nije sačuvan.');
+      toast.error(err?.message || t('games.coverFailed'));
     } finally {
       setCoverBusy(false);
     }
@@ -96,9 +104,9 @@ export default function GamePage() {
     return (
       <div className="section">
         <div className="container max-w-2xl">
-          <ErrorState title="Igra nije pronađena" message="Ova igra još nema stranicu na NEXUS-u." onRetry={() => refetch()}>
+          <ErrorState title={t('games.notFound')} message={t('games.notFoundHint')} onRetry={() => refetch()}>
             <Link to="/deals" className="text-sm text-cyan-300 hover:text-cyan-200">
-              ← Svi popusti
+              {t('games.allDeals')}
             </Link>
           </ErrorState>
         </div>
@@ -111,10 +119,10 @@ export default function GamePage() {
   return (
     <div className="section">
       <div className="container max-w-5xl">
-        <nav className="crumbs mb-5" aria-label="Putanja">
-          <Link to="/deals">Popusti</Link>
+        <nav className="crumbs mb-5" aria-label={t('nav.sections')}>
+          <Link to="/deals">{t('games.breadcrumbDeals')}</Link>
           <span className="sep" aria-hidden="true">/</span>
-          <Link to="/games">Igre</Link>
+          <Link to="/games">{t('games.breadcrumbGames')}</Link>
           <span className="sep" aria-hidden="true">/</span>
           <span className="text-white/80">{game.title}</span>
         </nav>
@@ -131,7 +139,7 @@ export default function GamePage() {
             {isStaff && (
               <label className="flex cursor-pointer items-center justify-center gap-1.5 border-t border-white/[0.08] px-2 py-1.5 text-[11px] text-white/60 transition hover:bg-white/[0.04] hover:text-white">
                 <ImagePlus size={12} aria-hidden="true" />
-                {coverBusy ? 'Otpremam…' : game.coverUrl ? 'Zameni cover' : 'Dodaj cover'}
+                {coverBusy ? t('games.coverUploading') : game.coverUrl ? t('games.coverReplace') : t('games.coverAdd')}
                 <input
                   type="file"
                   accept="image/jpeg,image/png,image/webp,image/gif"
@@ -150,27 +158,29 @@ export default function GamePage() {
               {game.releaseDate && (
                 <span className="inline-flex items-center gap-1.5">
                   <CalendarDays size={14} aria-hidden="true" />
-                  {new Date(game.releaseDate).toLocaleDateString('sr-Latn-RS', { year: 'numeric', month: 'long', day: 'numeric' })}
+                  {new Date(game.releaseDate).toLocaleDateString(localeTag(locale), { year: 'numeric', month: 'long', day: 'numeric' })}
                 </span>
               )}
               <Badge tone="success">
                 <Tag size={11} aria-hidden="true" />
-                {deals.length} {deals.length === 1 ? 'aktivan deal' : 'aktivnih deal-ova'}
+                {t('games.activeDeals', { count: deals.length })}
               </Badge>
               {bestPrice !== null && (
                 <Badge tone="primary">
-                  Najniže: {formatPrice(bestPrice, currency)}
+                  {t('games.bestPrice', { price: formatPrice(bestPrice, currency) })}
                 </Badge>
               )}
             </div>
 
             <div className="mt-5 flex flex-wrap items-center gap-2">
               <Button size="sm" onClick={openForm} leftIcon={<Plus size={14} />}>
-                Objavi deal za ovu igru
+                {t('games.dealCta')}
               </Button>
               <Link to={`/deals?search=${encodeURIComponent(game.title)}`} className="ui-btn br-secondary ui-btn-sm">
-                Svi dealovi u zajednici
+                {t('games.communityDeals')}
               </Link>
+              {/* F-4 — price alert: mejl kada cena padne ispod praga. */}
+              <PriceWatchButton game={game} bestPrice={bestPrice} currency={currency} />
             </div>
 
             <div className="mt-5">
@@ -182,8 +192,8 @@ export default function GamePage() {
         <section aria-labelledby="game-deals-heading">
           <div className="section-head mb-4">
             <div className="section-head-main">
-              <span className="eyebrow">Popusti</span>
-              <h2 id="game-deals-heading" className="section-title">Aktivni deals za ovu igru</h2>
+              <span className="eyebrow">{t('games.breadcrumbDeals')}</span>
+              <h2 id="game-deals-heading" className="section-title">{t('games.dealsSection')}</h2>
             </div>
           </div>
 
@@ -206,6 +216,9 @@ export default function GamePage() {
             </div>
           )}
         </section>
+
+        {/* 2.8.0 — community vodiči (long-tail SEO sekcija). */}
+        {game && <GuidesSection gameSlug={game.slug} gameTitle={game.title} />}
       </div>
 
       <DealForm

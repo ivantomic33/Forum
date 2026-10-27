@@ -42,7 +42,15 @@ export default function OAuthCallbackPage() {
 
     if (params.get('ok') === '1') {
       // Cookie je već tu; `initSession` učitava korisnika preko `/auth/me`.
-      initSession().then(() => navigate(safeNext, { replace: true }));
+      // N-02 — Layout ga je možda već pokrenuo (guard) pa drugi poziv samo
+      // sačeka isto stanje: i dalje tačno jedan `/auth/me`.
+      void initSession().finally(() => {
+        if (!useAuthStore.getState().isAuthenticated) {
+          setError('Prijava nije uspela. Pokušajte ponovo.');
+          return;
+        }
+        navigate(safeNext, { replace: true });
+      });
       return;
     }
 

@@ -6,7 +6,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { AlertTriangle, Star, Flame, Trophy } from 'lucide-react';
 import { api } from '../lib/api';
 import { VerifiedBadge } from '../components/ui/VerifiedBadge';
-import { OnlineAvatar } from '../components/ui';
+import { MedalRow, OnlineAvatar, PlayerCard, StatTile } from '../components/ui';
 
 interface LeaderboardUser {
   id: string;
@@ -30,27 +30,39 @@ interface LeaderboardUser {
  */
 const RANK_STYLES: Record<number, { ring: string; text: string; label: string; badge: string; avatar: string }> = {
   1: {
-    ring: 'border-violet-500/60 bg-violet-500/[0.07]',
-    text: 'text-violet-300',
+    ring: 'border-primary/40 bg-primary/[0.06]',
+    text: 'text-primary-fg',
     label: 'Šampion',
-    badge: 'border-violet-400/60 bg-violet-500/20 text-violet-100 shadow-[0_0_14px_-2px_rgba(168,85,247,0.8)]',
-    avatar: 'border-violet-400/70 ring-violet-500/40',
+    badge: 'border-primary/50 bg-primary/15 text-primary-fg',
+    avatar: 'border-primary-fg/70 ring-primary/40',
   },
   2: {
-    ring: 'border-cyan-500/30 bg-cyan-500/[0.05]',
-    text: 'text-cyan-300',
+    ring: 'border-[var(--color-border-strong)] bg-[var(--color-surface-2)]',
+    text: 'text-[var(--color-text-primary)]',
     label: 'Vanguard',
-    badge: 'border-cyan-400/50 bg-cyan-500/15 text-cyan-100 shadow-[0_0_14px_-2px_rgba(6,182,212,0.7)]',
-    avatar: 'border-cyan-400/50 ring-cyan-500/20',
+    badge: 'border-[var(--color-border-strong)] bg-[var(--color-surface-2)] text-[var(--color-text-primary)]',
+    avatar: 'border-[var(--color-border-strong)] ring-[var(--color-surface-3)]',
   },
   3: {
-    ring: 'border-indigo-500/30 bg-indigo-500/[0.05]',
-    text: 'text-indigo-300',
+    ring: 'border-[var(--color-border-default)] bg-[var(--color-surface-1)]',
+    text: 'text-[var(--color-text-secondary)]',
     label: 'Sentinel',
-    badge: 'border-indigo-400/50 bg-indigo-500/15 text-indigo-100 shadow-[0_0_14px_-2px_rgba(99,102,241,0.7)]',
-    avatar: 'border-indigo-400/50 ring-indigo-500/20',
+    badge: 'border-[var(--color-border-default)] bg-[var(--color-surface-2)] text-[var(--color-text-secondary)]',
+    avatar: 'border-[var(--color-border-default)] ring-[var(--color-surface-3)]',
   },
 };
+
+/**
+ * Granice nivoa — ista kriva kao server (`xpForLevel = round(500 * level^1.35)`).
+ * Vraća `{ start, end }` u apsolutnim XP poenima; traka meri `xp - start`.
+ */
+const levelRange = (level: number) => {
+  const safe = Math.max(1, level);
+  const start = safe === 1 ? 0 : Math.round(500 * Math.pow(safe, 1.35));
+  return { start, end: Math.round(500 * Math.pow(safe + 1, 1.35)) };
+};
+
+const formatXp = (value: number) => value.toLocaleString('sr-Latn-RS');
 
 export default function LeaderboardPage() {
   const [filter, setFilter] = useState<'karma' | 'level'>('karma');
@@ -119,14 +131,26 @@ export default function LeaderboardPage() {
     </div>
   );
 
+  // „Gaming kartica“: trenutni #1 nosač naslova ekrana (H1) + 4 stat pločice.
+  const champion = sorted[0];
+  const championAvatar =
+    champion?.avatar ||
+    (champion ? `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(champion.username)}` : '');
+  // Progres unutar nivoa (ne ukupni XP) — ranije je traka na višim nivoima
+  // stajala puna, jer je delila ukupan XP sa pragom nivoa.
+  const championXp = champion?.xp ?? 0;
+  const { start: levelStart, end: levelEnd } = levelRange(champion?.level ?? 1);
+  const xpLeft = Math.max(0, levelEnd - championXp);
+  const xpPercent = levelEnd > levelStart ? Math.min(100, Math.round(((championXp - levelStart) / (levelEnd - levelStart)) * 100)) : 0;
+
   return (
     <div className="section">
       <div className="container max-w-5xl">
         {/* Header */}
-        <header className="mb-10 border-b border-white/[0.07] pb-8 text-center">
+        <header className="mb-10 border-b border-[var(--color-border-subtle)] pb-8 text-center">
           <span className="eyebrow mb-4 justify-center">NEXUS Hall of Fame</span>
           <h1 className="page-title mx-auto">Rang-lista zajednice</h1>
-          <p className="mx-auto mt-3 max-w-2xl text-[15px] leading-relaxed text-white/50">
+          <p className="mx-auto mt-3 max-w-2xl text-lead">
             Najaktivniji članovi, veterani i kreatori sadržaja rangirani po zarađenoj karmi, osvojenim bedževima i nivoima reputacije.
           </p>
 
@@ -155,6 +179,48 @@ export default function LeaderboardPage() {
           </div>
         </header>
 
+        {/* Gaming kartica #1 — avatar 96 px sa nivo-prstenom, 4 StatTile, progress */}
+        {!loading && !isError && champion && (
+          <PlayerCard
+            className="mb-10"
+            avatar={
+              <OnlineAvatar
+                src={championAvatar}
+                userId={champion.id}
+                isOnline={champion.isOnline}
+                status={champion.status}
+                size="lg"
+                alt={`Avatar korisnika ${champion.username}`}
+                className="h-full w-full"
+              />
+            }
+            name={<Link to={`/profile/${champion.username}`}>{champion.username}</Link>}
+            handle={champion.username}
+            meta={
+              <>
+                <VerifiedBadge isVerified={champion.isVerified} size="sm" />
+                <span className="rank-badge">
+                  <Trophy size={11} aria-hidden="true" />
+                  #1 · {RANK_STYLES[1].label}
+                </span>
+              </>
+            }
+            medals={<MedalRow badges={champion.badges ?? []} className="mt-1" />}
+            stats={
+              <>
+                <StatTile label="Nivo" value={champion.level} />
+                <StatTile label="XP" value={formatXp(champion.xp)} />
+                <StatTile label="Karma" value={formatXp(champion.karma)} />
+                <StatTile label="Bedževi" value={(champion.badges ?? []).length} />
+              </>
+            }
+            progress={{
+              percent: xpPercent,
+              label: `Još ${formatXp(xpLeft)} XP do nivoa ${(champion?.level ?? 1) + 1}`,
+            }}
+          />
+        )}
+
         {/* Podium Top 3 */}
         {loading && podiumSkeleton}
 
@@ -182,7 +248,7 @@ export default function LeaderboardPage() {
         )}
 
         {/* Full Table */}
-        <div className="overflow-hidden rounded-lg border border-white/[0.09] bg-surface-1 shadow-[var(--shadow-level-1)]">
+        <div className="overflow-hidden rounded-lg border border-[var(--color-border-subtle)] bg-[var(--color-surface-1)] shadow-[var(--shadow-level-1)]">
           <div className="flex items-center justify-between border-b border-white/[0.07] bg-surface-2/60 px-4 py-3 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-text-tertiary)] sm:px-6">
             <div className="flex items-center gap-5 sm:gap-6">
               <span className="w-8 text-center">Rang</span>
@@ -310,12 +376,12 @@ function VirtualizedUserList({
                     size="md"
                     alt=""
                     className={`flex-shrink-0 border bg-[#e2e8f0] transition-colors ${
-                      rankStyle ? rankStyle.avatar : 'border-white/12 group-hover:border-cyan-400/40'
+                      rankStyle ? rankStyle.avatar : 'border-white/12 group-hover:border-primary-fg/40'
                     }`}
                   />
                   <div className="min-w-0">
                     <div className="flex min-w-0 items-center gap-2">
-                      <span className="leader-name truncate text-[13px] font-medium text-[var(--color-text-primary)] transition-colors group-hover:text-white">
+                      <span className="leader-name truncate text-[0.9375rem] font-medium text-[var(--color-text-primary)] transition-colors group-hover:text-[var(--color-text-primary)]">
                         {u.username}
                       </span>
                       <VerifiedBadge isVerified={u.isVerified} size="xs" />
@@ -325,7 +391,7 @@ function VirtualizedUserList({
                         </span>
                       )}
                       {u.role === 'moderator' && (
-                        <span className="rounded-[3px] border border-cyan-500/35 bg-cyan-500/10 px-1.5 py-px font-mono text-[9px] font-medium uppercase tracking-[0.06em] text-cyan-300">
+                        <span className="rounded-[3px] border-[var(--color-border-default)] bg-[var(--color-surface-2)] px-1.5 py-px font-mono text-[9px] font-medium uppercase tracking-[0.06em] text-[var(--color-text-secondary)]">
                           Mod
                         </span>
                       )}
@@ -339,7 +405,7 @@ function VirtualizedUserList({
                 <span className="hidden min-w-[3.5rem] rounded-[4px] border border-white/[0.07] bg-surface-2 px-2 py-0.5 text-center font-mono text-[11px] tabular-nums text-[var(--color-text-secondary)] sm:inline-block">
                   LVL {u.level}
                 </span>
-                <span className={`w-20 text-right font-mono text-sm font-bold tabular-nums sm:w-24 ${filter === 'karma' ? 'text-cyan-400' : 'text-white'}`}>
+                <span className="w-20 text-right font-mono text-sm font-semibold tabular-nums text-[var(--color-text-primary)] sm:w-24">
                   {filter === 'karma' ? `+${u.karma.toLocaleString('sr-Latn-RS')}` : u.xp.toLocaleString('sr-Latn-RS')}
                 </span>
               </div>
@@ -380,16 +446,14 @@ function PodiumCard({ user, rank, isWinner = false }: { user: LeaderboardUser; r
           size="lg"
           alt=""
           className={`mx-auto border-2 ring-4 ring-[var(--color-surface-2)] ${style.avatar} ${
-            isWinner
-              ? '!h-[88px] !w-[88px] bg-[#e2e8f0] shadow-[0_0_28px_-4px_rgba(168,85,247,0.9)]'
-              : '!h-[72px] !w-[72px] bg-[#e2e8f0]'
+            isWinner ? '!h-[88px] !w-[88px]' : '!h-[72px] !w-[72px]'
           }`}
         />
         <span className="absolute -right-3 -top-2 rounded-[4px] border border-violet-500/30 bg-surface-4 px-1.5 py-0.5 font-mono text-[10px] font-medium tabular-nums text-[var(--color-text-secondary)] shadow-[var(--shadow-level-1)]">
           LVL {user.level}
         </span>
       </div>
-      <h3 className={`mb-1 flex items-center justify-center gap-1.5 truncate font-display font-semibold tracking-tight text-white ${isWinner ? 'text-xl' : 'text-lg'}`}>
+      <h3 className={`mb-1 flex items-center justify-center gap-1.5 truncate font-display font-semibold tracking-tight text-[var(--color-text-primary)] ${isWinner ? 'text-xl' : 'text-lg'}`}>
         {user.username}
         <VerifiedBadge isVerified={user.isVerified} size="sm" />
       </h3>
@@ -398,7 +462,7 @@ function PodiumCard({ user, rank, isWinner = false }: { user: LeaderboardUser; r
       </div>
       <div className="inline-flex items-center gap-2 border-t border-white/[0.07] pt-4">
         <Star size={13} className={style.text} aria-hidden="true" />
-        <span className="font-mono text-sm font-medium tabular-nums text-cyan-300">+{user.karma.toLocaleString('sr-Latn-RS')}</span>
+        <span className="font-mono text-sm font-medium tabular-nums text-[var(--color-text-primary)]">+{user.karma.toLocaleString('sr-Latn-RS')}</span>
         <span className="text-[11px] text-[var(--color-text-muted)]">karme</span>
       </div>
     </Link>

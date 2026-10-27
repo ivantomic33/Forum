@@ -2,36 +2,41 @@
 import { LayoutGrid, Search, User, Menu, X, LogOut, Shield, Flag } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useAuthStore } from '../store/authStore';
+import { useT, localeTag, getLocale } from '../lib/i18n';
 import { Badge, Button, OnlineAvatar } from './ui';
 import { VerifiedBadge } from './ui/VerifiedBadge';
 import { NotificationBell } from './NotificationBell';
+import { LanguageSwitcher } from './LanguageSwitcher';
 
 /**
  * Navigacija koristi POSTOJEĆE stranice — ranije su „PlayStation“ i „Recenzije“
  * vodili na pogrešne forume (`/forum/consoles`, `/forum/hardware`).
+ * 2.8.1 — i18n: labeli su ključevi (`nav.*`), datumi kroz `Intl` sa aktivnim jezikom.
  */
 const NAV_ITEMS = [
-  { label: 'Sve vesti', path: '/' },
-  { label: 'Forum', path: '/forum' },
+  { labelKey: 'nav.home', path: '/', accent: 'var(--color-primary)' },
+  { labelKey: 'nav.forum', path: '/forum', accent: 'var(--color-secondary)' },
   // 2.6.0 — Deals / Popusti
-  { label: 'Popusti', path: '/deals' },
-  { label: 'PC Gaming', path: '/forum/pc-gaming' },
-  { label: 'Konzole', path: '/forum/consoles' },
-  { label: 'Esports', path: '/forum/esports' },
-  { label: 'Hardver', path: '/forum/hardware' },
-  { label: 'Rang lista', path: '/leaderboard' },
-];
+  { labelKey: 'nav.deals', path: '/deals', accent: 'var(--color-deal)' },
+  { labelKey: 'nav.pcGaming', path: '/forum/pc-gaming', accent: 'var(--color-secondary)' },
+  { labelKey: 'nav.consoles', path: '/forum/consoles', accent: 'var(--color-tertiary)' },
+  { labelKey: 'nav.esports', path: '/forum/esports', accent: 'var(--color-deal)' },
+  { labelKey: 'nav.hardware', path: '/forum/hardware', accent: 'var(--color-secondary)' },
+  { labelKey: 'nav.leaderboard', path: '/leaderboard', accent: 'var(--color-tertiary)' },
+] as const;
 
 /** Stranice koje postoje na portalu (`/category/:name`). */
 const CATEGORY_LINKS = [
-  { label: 'Vesti', path: '/category/vesti' },
-  { label: 'Recenzije', path: '/category/recenzije' },
-  { label: 'Hardver', path: '/category/hardver' },
-  { label: 'Najave', path: '/category/najave' },
-  { label: 'Liste', path: '/category/liste' },
-];
+  { labelKey: 'nav.home', path: '/category/vesti' },
+  { labelKey: 'nav.sections', path: '/category/recenzije' },
+  { labelKey: 'nav.hardware', path: '/category/hardver' },
+  { labelKey: 'nav.consoles', path: '/category/najave' },
+  { labelKey: 'nav.leaderboard', path: '/category/liste' },
+] as const;
 
 export default function Navbar() {
+  const t = useT();
+  const locale = getLocale();
   const [menuOpen, setMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -99,37 +104,17 @@ export default function Navbar() {
 
   return (
     <>
-      {/* Top micro bar: datum + status portala (bez lažnog „LIVE“ indikatora) */}
-      <div className="hidden border-b border-white/[0.05] bg-[#06070E]/90 px-4 py-1.5 text-xs text-slate-500 backdrop-blur-md sm:block">
-        <div className="container flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="capitalize">
-              {new Date().toLocaleDateString('sr-Latn-RS', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-            </span>
-            <span className="text-white/15" aria-hidden="true">/</span>
-            <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-cyan-400">NEXUS Portal</span>
-          </div>
-          <div className="flex items-center gap-4">
-            <Link to="/deals" className="transition hover:text-cyan-300">
-              Popusti
-            </Link>
-            <Link to="/forum" className="transition hover:text-cyan-300">
-              Zajednica
-            </Link>
-            <Link to="/leaderboard" className="transition hover:text-cyan-300">
-              Top članovi
-            </Link>
-          </div>
-        </div>
-      </div>
+      {/* Top micro bar UKLONJEN (5.7) — datum, „NEXUS Portal“ i „3 nova popusta“
+          linkovi su bili redundantni u odnosu na glavnu navigaciju ispod.
+          Traženi linkovi (Deals / Zajednica / Top članovi) postoje u main nav-u. */}
 
       {/* Main Navbar */}
-      <nav className="sticky top-0 z-50 border-b border-white/[0.08] bg-[#06070E]/80 backdrop-blur-xl">
+      <nav className="sticky top-0 z-50 border-b border-white/[0.08] bg-[var(--glass-bg)] backdrop-blur-xl">
         <div className="container">
-          <div className="flex h-16 items-center justify-between gap-2">
+          <div className="flex h-16 min-w-0 items-center justify-between gap-2">
             {/* Logo — Cyber Pulse mark */}
             <Link to="/" className="group flex items-center gap-2.5" aria-label="NEXUS — početna">
-              <div className="flex h-9 w-9 items-center justify-center rounded-[10px] bg-gradient-to-br from-violet-500 to-cyan-400 font-display text-lg font-extrabold tracking-wider text-white shadow-[0_0_15px_rgba(124,58,237,0.5)] transition-transform duration-150 group-hover:shadow-[0_0_22px_rgba(6,182,212,0.7)] group-active:scale-95">
+              <div className="nexus-logo-mark flex h-9 w-9 items-center justify-center rounded-[10px] font-display text-lg font-extrabold tracking-wider text-[var(--color-on-solid)] transition-transform duration-150 group-active:scale-95">
                 N
               </div>
               <div className="flex items-baseline gap-1.5">
@@ -143,38 +128,29 @@ export default function Navbar() {
             </Link>
 
             {/* Desktop navigation */}
-            <div className="hidden items-center gap-0.5 lg:flex">
+            <div className="hidden min-w-0 items-center gap-0.5 lg:flex">
               {NAV_ITEMS.map((item) => {
                 const active = isActive(item.path);
                 return (
                   <Link
-                    key={item.label}
+                    key={item.labelKey}
                     to={item.path}
                     aria-current={active ? 'page' : undefined}
+                    style={{ ['--nav-accent' as string]: item.accent }}
                     className={`group relative rounded-md px-3 py-2 text-[13px] font-medium transition-all duration-200 ${active
-                        ? 'text-white'
-                        : 'text-slate-400 hover:bg-white/[0.04] hover:text-white'
+                        ? 'text-[var(--color-text-primary)]'
+                        : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text-primary)]'
                       }`}
                   >
-                    {item.label}
-                    {active ? (
-                      <span
-                        className="absolute inset-x-3 -bottom-[9px] h-[2px] rounded-full bg-gradient-to-r from-violet-500 to-cyan-400 shadow-[0_0_10px_rgba(124,58,237,0.7)]"
-                        aria-hidden="true"
-                      />
-                    ) : (
-                      <span
-                        className="absolute inset-x-3 -bottom-[9px] h-[2px] origin-center scale-x-0 rounded-full bg-gradient-to-r from-violet-500/70 to-cyan-400/70 transition-transform duration-300 ease-out group-hover:scale-x-100"
-                        aria-hidden="true"
-                      />
-                    )}
+                    {t(item.labelKey)}
+                    <span className="nav-tick" aria-hidden="true" />
                   </Link>
                 );
               })}
             </div>
 
             {/* Right actions */}
-            <div className="flex items-center gap-2">
+            <div className="navbar-actions flex shrink-0 items-center gap-1 sm:gap-2">
               <button
                 type="button"
                 onClick={() => setSearchOpen(!searchOpen)}
@@ -187,6 +163,9 @@ export default function Navbar() {
               </button>
 
               <NotificationBell />
+
+              {/* 2.8.1 — izbor jezika (sr/en); compact jer je prostor u navbaru mali. */}
+              <LanguageSwitcher compact />
 
               {isAuthenticated && user ? (
                 <div className="relative" ref={dropdownRef}>
@@ -206,9 +185,9 @@ export default function Navbar() {
                       status={user.status}
                       size="sm"
                       alt=""
-                      className="border border-violet-500/50"
+                      className="border-[var(--color-border-default)]"
                     />
-                    <span className="hidden items-center gap-1 text-sm font-semibold text-white/90 sm:inline-flex">
+                    <span className="hidden items-center gap-1 text-sm font-semibold text-[var(--color-text-primary)] sm:inline-flex">
                       {user.username}
                       <VerifiedBadge isVerified={user.isVerified} size="xs" />
                     </span>
@@ -220,14 +199,14 @@ export default function Navbar() {
                       role="menu"
                       className="ui-card-elevated absolute right-0 z-50 mt-2 w-60 overflow-hidden !rounded-lg !p-2"
                     >
-                      <div className="mb-1 border-b border-white/10 px-3 py-2.5">
-                        <div className="flex items-center gap-1.5 text-sm font-semibold text-white">
+                      <div className="mb-1 border-b border-[var(--color-border-subtle)] px-3 py-2.5">
+                        <div className="flex items-center gap-1.5 text-sm font-semibold text-[var(--color-text-primary)]">
                           <span className="truncate">{user.username}</span>
                           <VerifiedBadge isVerified={user.isVerified} size="sm" />
                         </div>
-                        <div className="truncate text-xs text-white/50">{user.email}</div>
+                        <div className="truncate text-xs text-[var(--color-text-tertiary)]">{user.email}</div>
                         <div className="mt-2 flex items-center gap-1.5">
-                          <Badge tone="neutral">{roleLabel(user.role)}</Badge>
+                          <Badge tone="neutral">{roleLabel(user.role, locale)}</Badge>
                           <Badge tone="primary" className="!normal-case">LVL {user.level || 1}</Badge>
                         </div>
                       </div>
@@ -236,20 +215,20 @@ export default function Navbar() {
                         to={`/profile/${encodeURIComponent(user.username)}`}
                         role="menuitem"
                         onClick={() => setUserDropdown(false)}
-                        className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-white/80 transition hover:bg-white/[0.05] hover:text-white"
+                        className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-[var(--color-text-secondary)] transition hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text-primary)]"
                       >
                         <User size={16} />
-                        Moj profil
+                        {t('nav.myProfile')}
                       </Link>
 
                       <Link
                         to={`/profile/${encodeURIComponent(user.username)}?tab=quests`}
                         role="menuitem"
                         onClick={() => setUserDropdown(false)}
-                        className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-white/80 transition hover:bg-white/[0.05] hover:text-white"
+                        className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-[var(--color-text-secondary)] transition hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text-primary)]"
                       >
                         <LayoutGrid size={16} />
-                        Kvestovi i bedževi
+                        {t('nav.quests')}
                       </Link>
 
                       {(user.role === 'admin' || user.role === 'moderator') && (
@@ -257,10 +236,10 @@ export default function Navbar() {
                           to="/admin/reports"
                           role="menuitem"
                           onClick={() => setUserDropdown(false)}
-                          className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-amber-300 transition hover:bg-amber-500/10 hover:text-amber-200"
+                          className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-[var(--color-warning)] transition hover:bg-[var(--color-surface-2)]"
                         >
                           <Flag size={16} />
-                          Moderacioni red
+                          {t('nav.moderation')}
                         </Link>
                       )}
 
@@ -269,10 +248,10 @@ export default function Navbar() {
                           to="/admin"
                           role="menuitem"
                           onClick={() => setUserDropdown(false)}
-                          className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-violet-300 transition hover:bg-violet-500/10 hover:text-violet-200"
+                          className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-[var(--color-primary-fg)] transition hover:bg-[var(--color-surface-2)] hover:text-[var(--color-primary-fg-light)]"
                         >
                           <Shield size={16} />
-                          Admin panel
+                          {t('nav.adminPanel')}
                         </Link>
                       )}
 
@@ -280,18 +259,18 @@ export default function Navbar() {
                         type="button"
                         role="menuitem"
                         onClick={handleLogout}
-                        className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-rose-400 transition hover:bg-rose-500/10 hover:text-rose-300"
+                        className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-[var(--color-tertiary-fg)] transition hover:bg-[var(--color-error-glow)] hover:text-[var(--color-tertiary-fg-soft)]"
                       >
                         <LogOut size={16} />
-                        Odjavi se
+                        {t('nav.logout')}
                       </button>
                     </div>
                   )}
                 </div>
               ) : (
-                <Link to="/login" className="ui-btn br-primary ui-btn-sm flex items-center gap-1.5">
+                <Link to="/login" className="ui-btn br-primary ui-btn-sm navbar-login">
                   <User size={14} />
-                  <span>Prijava</span>
+                  <span className="hidden sm:inline">{t('nav.login')}</span>
                 </Link>
               )}
 
@@ -300,7 +279,7 @@ export default function Navbar() {
                 type="button"
                 onClick={() => setMenuOpen(!menuOpen)}
                 className="ui-icon-btn lg:hidden"
-                aria-label={menuOpen ? 'Zatvori meni' : 'Otvori meni'}
+                aria-label={menuOpen ? t('nav.menuClose') : t('nav.menuOpen')}
                 aria-expanded={menuOpen}
                 aria-controls="mobile-menu"
               >
@@ -324,8 +303,8 @@ export default function Navbar() {
                   type="search"
                   value={searchTerm}
                   onChange={(event) => setSearchTerm(event.target.value)}
-                  placeholder="Pretraži članke, forum i popuste…"
-                  aria-label="Pretraga foruma"
+                  placeholder={t('nav.searchPlaceholder')}
+                  aria-label={t('nav.searchLabel')}
                   className="ui-field !py-2.5 !pl-10"
                   autoFocus
                 />
@@ -335,36 +314,36 @@ export default function Navbar() {
 
           {/* Mobile menu */}
           {menuOpen && (
-            <div id="mobile-menu" className="space-y-1 border-t border-white/[0.06] py-3 lg:hidden">
+            <div id="mobile-menu" className="space-y-1 border-t border-[var(--color-border-subtle)] py-3 lg:hidden">
               {NAV_ITEMS.map((item) => (
                 <Link
-                  key={item.label}
+                  key={item.labelKey}
                   to={item.path}
                   onClick={() => setMenuOpen(false)}
                   aria-current={isActive(item.path) ? 'page' : undefined}
-                  className="block rounded-md px-3 py-2.5 text-sm text-slate-300 transition hover:bg-violet-500/10 hover:text-white"
+                  className="block rounded-md px-3 py-2.5 text-sm text-[var(--color-text-secondary)] transition hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text-primary)]"
                 >
-                  {item.label}
+                  {t(item.labelKey)}
                 </Link>
               ))}
 
-              <div className="mt-2 border-t border-white/[0.06] pt-2">
-                <span className="px-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Rubrike</span>
+              <div className="mt-2 border-t border-[var(--color-border-subtle)] pt-2">
+                <span className="px-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--color-text-tertiary)]">{t('nav.sections')}</span>
                 {CATEGORY_LINKS.map((item) => (
                   <Link
                     key={item.path}
                     to={item.path}
                     onClick={() => setMenuOpen(false)}
-                    className="block rounded-md px-3 py-2 text-sm text-slate-400 transition hover:bg-cyan-500/10 hover:text-cyan-200"
+                    className="block rounded-md px-3 py-2 text-sm text-[var(--color-text-secondary)] transition hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text-primary)]"
                   >
-                    {item.label}
+                    {t(item.labelKey)}
                   </Link>
                 ))}
               </div>
 
               {!isAuthenticated && (
                 <Button block className="mt-2" onClick={() => navigate('/register')}>
-                  Registruj se
+                  {t('nav.register')}
                 </Button>
               )}
             </div>
@@ -375,9 +354,11 @@ export default function Navbar() {
   );
 }
 
-function roleLabel(role?: string) {
+function roleLabel(role: string | undefined, locale: string) {
+  // Role skraćenice su deo brenda i iste u oba jezika, osim „ČLAN“.
   if (role === 'admin') return 'ADMIN';
   if (role === 'dev') return 'DEV';
   if (role === 'moderator') return 'MOD';
-  return 'ČLAN';
+  return locale === 'sr' ? 'ČLAN' : 'MEMBER';
 }
+

@@ -1,0 +1,1836 @@
+/**
+ * SLOJ 3 — THEME, TIPOGRAFSKI PRIMITIVI, JEDINSTVEN FOKUS I STRUKTURNI
+ * PRIMITIVI PORTALA (SectionHeader / StoryCard / ThreadRow / PriceTag /
+ * StatTile / AvatarStack / Drawer).
+ *
+ * Ovaj fajl je „dizajnerski ugovor“ za U-01, U-03, U-06, U-07 i U-08:
+ *
+ *  - light/sistem tema kroz `data-theme` na <html> (bez hardkodovanog `color-scheme: dark`),
+ *  - jedan akcent po ekranu (violet = akcija; cyan/emerald/rose/amber = samo status),
+ *  - tekstualne klase (`text-body`, `text-meta`, `text-eyebrow`…) koje nikad ne idu pod
+ *    4,5:1 za telo teksta (umesto `text-[13px] text-white/50`),
+ *  - JEDAN `:focus-visible` stil za sve interaktivne elemente (U-07),
+ *  - print režim za dugo čitanje članka/teme.
+ *
+ * Ništa ovde ne uvodi novu boju — sve dolazi iz `tokens.css`.
+ *
+ * U-08 — light paleta je DRUGI IZVOR za iste tokene (kao `tokens.css`), pa je
+ * `scripts/check-css-tokens.mjs` preskače iz istog razloga kao
+ * `legacy-palette.css` — to nije hardkodovana boja u komponenti, nego tema.
+ *
+ * Sloj: `tokens.css` definiše `:root` VAN sloja (Tailwind `@theme`), pa light
+ * pravila moraju u `@layer components` da bi pobedila `:root` iz tokena. BOM
+ * ispred `@layer` (Lightning CSS) pravila je izbacivao iz sloja — čisti ga
+ * `scripts/qa/strip-css-bom.mjs`, koji se pokreće pre build-a.
+ */
+@layer components-theme {
+
+  /*
+   * LIGHT THEME — ista struktura tokena, svetle vrednosti.
+   * Prebacivanje: `<html data-theme="light">` (ThemeToggle / `lib/theme.ts`).
+   * „print“ se ne postavlja kao tema; print ima svoj @media blok ispod.
+   *
+   * 2.8.0 — senke su neutralne (`0 1px 2px rgba(0,0,0,.06)`), nema tamnih
+   * glow-ova; primarni CTA u svetloj temi nema `--shadow-glow`.
+   */
+  :root[data-theme='light'] {
+    color-scheme: light;
+
+    /*
+     * Hladno-bela skala sa ljubičastim podtonom (3.0 OBSIDIAN VIOLET — light).
+     * Ista struktura kao tamna tema: surface-0 pozadina, surface-1 kartice,
+     * surface-2 unutrašnjost/hover, surface-3 aktivno.
+     */
+    --color-surface-0: #fbf9ff;
+    --color-surface-1: #ffffff;
+    --color-surface-2: #efebfa;
+    --color-surface-3: #e4ddf7;
+    --color-surface-4: #d7cff0;
+    --color-surface-5: #c9bfe8;
+
+    --color-depth-indigo: rgba(109, 40, 217, 0.08);
+    --color-depth-violet: rgba(59, 75, 255, 0.06);
+    --color-depth-amber: rgba(180, 83, 9, 0);
+
+    --color-primary: #6d28d9;
+    --color-primary-hover: #7c3aed;
+    --color-primary-active: #5b21b6;
+    /* Puna violet površina u svetloj temi: beli tekst ostaje ≥ 4,5:1 */
+    --color-primary-surface: #6d28d9;
+    --color-primary-surface-hover: #5b21b6;
+    --color-primary-muted: rgba(109, 40, 217, 0.12);
+    --color-primary-subtle: rgba(109, 40, 217, 0.07);
+    --color-primary-fg: #6d28d9;
+    --color-indigo: #3b4bff;
+    --color-navy-accent: #3b4bff;
+    --color-secondary: #0e7490;
+    --color-secondary-hover: #0891b2;
+    --color-prestige: #7e22ce;
+    --color-tertiary: #be123c;
+
+    /* Ulogovane boje zona — tamniji tonovi da tekst ostane ≥ 4,5:1 na belom */
+    --color-deal: #b45309;
+    --color-deal-fg: #b45309;
+    --color-community: #047857;
+    --color-gold-rank: #b45309;
+
+    --color-success: #047857;
+    --color-warning: #b45309;
+    --color-error: #b91c1c;
+    --color-info: #0e7490;
+
+    --color-text-primary: #1e2350;
+    --color-text-secondary: #3f3d5c;
+    --color-text-tertiary: #4c4a6b;
+    --color-text-muted: #5c5a7a;
+    --color-text-disabled: #8a88a3;
+    --color-text-on-primary: #ffffff;
+    --color-text-inverse: #fbf9ff;
+
+    --color-border-subtle: rgba(30, 35, 80, 0.08);
+    --color-border-default: rgba(30, 35, 80, 0.13);
+    --color-border-strong: rgba(30, 35, 80, 0.22);
+    --color-border-focus: rgba(109, 40, 217, 0.75);
+    --color-border-gold: rgba(109, 40, 217, 0.32);
+    --color-border-gold-strong: rgba(109, 40, 217, 0.5);
+
+    --color-overlay: rgba(30, 35, 80, 0.45);
+    --color-input-bg: #ffffff;
+    --color-input-border: rgba(30, 35, 80, 0.16);
+    --color-skeleton: #efebfa;
+
+    --glass-bg: rgba(255, 255, 255, 0.88);
+    --glass-bg-strong: rgba(255, 255, 255, 0.97);
+
+    --color-on-solid: #ffffff;
+    --color-canvas-top: #ffffff;
+    --color-canvas-bottom: #f7f4ff;
+    --color-primary-glow-soft: rgba(109, 40, 217, 0.14);
+    --color-primary-glow: rgba(109, 40, 217, 0.3);
+    --color-primary-glow-strong: rgba(109, 40, 217, 0.34);
+    --color-indigo-glow: rgba(99, 102, 241, 0.1);
+    --color-secondary-glow: rgba(8, 145, 178, 0.12);
+    --color-secondary-glow-strong: rgba(8, 145, 178, 0.45);
+    --color-tertiary-glow: rgba(190, 18, 60, 0.1);
+    --color-success-glow: rgba(4, 120, 87, 0.16);
+    --color-error-glow: rgba(185, 28, 28, 0.12);
+    --color-text-secondary-glow: rgba(63, 71, 89, 0.12);
+    --color-primary-fg-light: #5b21b6;
+    --color-info-fg: #0e7490;
+    --color-info-fg-soft: #155e75;
+    --color-tertiary-fg: #9f1239;
+    --color-tertiary-fg-soft: #881337;
+    --color-success-fg: #047857;
+    --color-success-fg-soft: #065f46;
+    --color-text-soft: #2b2a4a;
+    --color-font-white: #1e2350;
+    --color-border-subtle-rgb: 30, 35, 80;
+    --color-border-default-rgb: 30, 35, 80;
+    --color-grid-line: rgba(30, 35, 80, 0.04);
+
+    --gradient-hero-fade: linear-gradient(180deg,
+        rgba(251, 249, 255, 0) 0%,
+        rgba(251, 249, 255, 0) 40%,
+        rgba(251, 249, 255, 0.86) 78%,
+        var(--color-surface-0) 100%);
+    --gradient-grid-line: linear-gradient(var(--color-grid-line) 1px, transparent 1px);
+    --gradient-grid-line-v: linear-gradient(90deg, var(--color-grid-line) 1px, transparent 1px);
+
+    /* Elevacija: neutralne senke (bez violet glow-a), glow se ne koristi */
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+    --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.06), 0 8px 20px rgba(0, 0, 0, 0.06);
+    --shadow-lg: 0 4px 10px rgba(0, 0, 0, 0.08), 0 24px 48px rgba(0, 0, 0, 0.1);
+    --shadow-glow: 0 1px 2px rgba(0, 0, 0, 0.08);
+    --ring-focus: 0 0 0 2px var(--color-surface-1), 0 0 0 4px var(--color-border-focus);
+  }
+
+  /*
+   * Svetla tema mora da pobe: `base.css` (SLOJ 2) i `legacy-palette.css` (kasniji
+   * SLOJ 3) postavljaju `background` na `body` i kartice; zato je ovaj blok u
+   * `!important` sa eksplicitnim `background-image`. `data-theme` je i na
+   * <html> i na <body> (vidi `lib/theme.ts`), pa selektor hvata oba slučaja.
+   * Isti slojeviti ambijent kao tamna tema (violet/cyan/amber preko baze), ali
+   * iz svetlih `--color-depth-*` vrednosti — ništa se ne hardkoduje ovde.
+   */
+  :root[data-theme='light'] body,
+  :root[data-theme='light'] body[data-theme='light'] {
+    background-color: var(--color-surface-0) !important;
+    background-image:
+      radial-gradient(ellipse 80% 60% at 12% 8%, var(--color-depth-indigo) 0%, transparent 60%),
+      radial-gradient(ellipse 75% 55% at 88% 92%, var(--color-depth-violet) 0%, transparent 62%),
+      linear-gradient(180deg, var(--color-canvas-top) 0%, var(--color-surface-0) 45%, var(--color-canvas-bottom) 100%) !important;
+    color: var(--color-text-primary);
+    animation: none !important;
+  }
+
+  /* Na svetlom ostaje samo statična mreža — bez čestica, skena i grain-a */
+  :root[data-theme='light'] body::after,
+  :root[data-theme='light'] body[data-theme='light']::after,
+  :root[data-theme='light'] .forge-grain,
+  :root[data-theme='light'] .nx-particles,
+  :root[data-theme='light'] .nx-scan {
+    display: none !important;
+  }
+
+  :root[data-theme='light'] body::before,
+  :root[data-theme='light'] body[data-theme='light']::before {
+    background-image:
+      var(--gradient-grid-line),
+      var(--gradient-grid-line-v) !important;
+    animation: none !important;
+  }
+
+  /*
+   * Borders i „glass“ boje u legacy sloju koriste rgba(255,255,255,…). Na
+   * svetloj temi to je nevidljivo, pa se neutralni slojevi čitaju iz tokena.
+   * (Samo neutralne boje — akcenti ostaju iz palete.)
+   */
+  :root[data-theme='light'] .ui-card,
+  :root[data-theme='light'] .ui-card-static,
+  :root[data-theme='light'] .ui-card-elevated,
+  :root[data-theme='light'] .forum-cat-card,
+  :root[data-theme='light'] .profile-hero,
+  :root[data-theme='light'] .auth-shell {
+    /* `background-color` sam ne pobeđuje `background: linear-gradient(...)` iz
+       `ui-kit.css`; zato se zadaje i `background-image: none`. */
+    background-color: var(--color-surface-1) !important;
+    background-image: none !important;
+    border-color: var(--color-border-default);
+    box-shadow: var(--shadow-sm);
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+
+  :root[data-theme='light'] .ui-card-elevated,
+  :root[data-theme='light'] .ui-modal-panel {
+    background-color: var(--color-surface-1) !important;
+    background-image: none !important;
+    box-shadow: var(--shadow-lg);
+  }
+
+  :root[data-theme='light'] .ui-badge-neutral {
+    background: var(--color-surface-2) !important;
+    color: var(--color-text-secondary);
+  }
+
+  :root[data-theme='light'] nav.sticky,
+  :root[data-theme='light'] .mobile-tabbar {
+    background: var(--glass-bg) !important;
+    box-shadow: 0 1px 0 var(--color-border-default), 0 6px 16px rgba(0, 0, 0, 0.05);
+  }
+
+  /*
+   * Light tema: `text-white` na PLITKIM podlogama mora u tamni ton — inače je
+   * tekst nevidljiv (navbar, kartice, sidebar). Namerno isključujemo elemente
+   * sa punom bojom/brand gradijentom (avatar chip, primarno dugme, logo).
+   */
+  :root[data-theme='light'] :is([class~="text-white"], [class~="text-white/90"], [class~="text-white/85"], [class~="text-white/80"], [class~="text-white/70"], [class~="text-white/60"], [class~="text-white/55"], [class~="text-white/50"]):not(.br-primary, .br-primary *):not([class*='bg-gradient-to-'], .ui-badge-primary, .ui-badge-secondary) {
+    color: var(--color-text-primary);
+  }
+
+  :root[data-theme='light'] :is([class~="text-slate-300"], [class~="text-slate-400"]) {
+    color: var(--color-text-secondary);
+  }
+
+  /* U-06 — `text-secondary` token je za svetli kanvas previše blizu bele;
+     tekst na karticama mora ostati čitljiv (≥ 4,5:1). */
+  :root[data-theme='light'] :is([class~="text-[var(--color-text-secondary)]"], .text-meta, .text-body, .text-lead) {
+    color: var(--color-text-secondary);
+  }
+
+  /* Svetla tema: footer i micro-bar prelaze u svetlu paletu (ranije su ostajali crni) */
+  :root[data-theme='light'] .forge-footer,
+  :root[data-theme='light'] footer {
+    background: var(--color-surface-1) !important;
+    background-image: none !important;
+    border-top-color: var(--color-border-default);
+  }
+
+  :root[data-theme='light'] .forge-footer p,
+  :root[data-theme='light'] .forge-footer a,
+  :root[data-theme='light'] .forge-footer span,
+  :root[data-theme='light'] .forge-footer li {
+    color: var(--color-text-secondary);
+  }
+
+  /* nb-microbar uklonjen (5.7) — light tema pravilo više nije potrebno. */
+
+  /* Mega-meniji / padajući paneli (nav) imaju `bg-[#0D101D]` u JSX-u */
+  :root[data-theme='light'] .nb-panel {
+    background: var(--color-surface-1) !important;
+    border-color: var(--color-border-default) !important;
+    box-shadow: var(--shadow-md);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  :root[data-theme='light'] nav.sticky a[aria-current='page'] {
+    color: var(--color-text-primary);
+  }
+
+  /* ==========================================================================
+     U-01 — TIPOGRAFSKI PRIMITIVI (2.8.0 skala)
+     ========================================================================== */
+
+  .text-hero {
+    font-family: var(--font-family-heading);
+    font-size: var(--text-hero);
+    line-height: var(--text-hero-line);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    text-wrap: balance;
+    color: var(--color-text-primary);
+  }
+
+  .text-h1 {
+    font-size: var(--text-h1);
+    line-height: var(--text-h1-line);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    text-wrap: balance;
+  }
+
+  .text-h2 {
+    font-size: var(--text-h2);
+    line-height: var(--text-h2-line);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+
+  .text-h3 {
+    font-size: var(--text-h3);
+    line-height: var(--text-h3-line);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .text-lead {
+    font-size: var(--text-lead);
+    line-height: var(--text-lead-line);
+    color: var(--color-text-secondary);
+  }
+
+  /* Telo teksta kartice: ≥ 4,5:1 (U-06). Nikad 13 px / white-50. */
+  .text-body {
+    font-size: var(--text-body);
+    line-height: var(--text-body-line);
+    color: var(--color-text-secondary);
+  }
+
+  /* Meta (autor, datum, pregledi): 13 px, sekundarni ton ≥ 4,5:1. */
+  .text-meta {
+    font-size: var(--text-meta);
+    line-height: var(--text-meta-line);
+    color: var(--color-text-secondary);
+  }
+
+  /* Eyebrow: UPPERCASE, .08em, Inter 700, 11 px */
+  .text-eyebrow,
+  :where(.eyebrow),
+  .eyebrow {
+    display: inline-block;
+    font-family: var(--font-family-body);
+    font-size: var(--text-eyebrow);
+    line-height: var(--text-eyebrow-line);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-primary-fg);
+  }
+
+  .text-label {
+    font-family: var(--font-family-body);
+    font-size: var(--text-label);
+    line-height: var(--text-label-line);
+    font-weight: 600;
+    color: var(--color-text-secondary);
+  }
+
+  .text-micro {
+    font-size: var(--text-micro);
+    line-height: var(--text-micro-line);
+    color: var(--color-text-tertiary);
+  }
+
+  /* Brojevi i cene — JetBrains Mono 600, tabular */
+  .text-number {
+    font-family: var(--font-family-mono);
+    font-size: var(--text-number);
+    line-height: var(--text-number-line);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+    color: var(--color-text-primary);
+  }
+
+  /* „text-white/50“ zamena — isti izgled, ali AA kontrast */
+  .text-quiet {
+    color: var(--color-text-tertiary);
+  }
+
+  /*
+   * U-06 — GLOBALNI KONTRAST FLOOR.
+   * Umesto da se svaki ekran menja ručno (rizik da neki ostane), ovde se
+   * `text-white/50`-familija i `text-[10px…13px]` podižu na AA.
+   */
+  :where([class~="text-white"], [class~="text-white/90"], [class~="text-white/85"], [class~="text-white/80"]) {
+    color: var(--color-text-primary);
+  }
+
+  :where([class~="text-white/70"], [class~="text-white/60"], [class~="text-white/55"], [class~="text-white/50"],
+    [class~="text-slate-300"], [class~="text-slate-400"]) {
+    color: var(--color-text-secondary);
+  }
+
+  :where([class~="text-white/45"], [class~="text-white/40"], [class~="text-slate-500"]) {
+    color: var(--color-text-tertiary);
+  }
+
+  /* 13 px „telo“ kartice -> 16 px (U-01/U-06); 10–11 px ostaje samo za badge.
+     `[data-density="compact"]` (admin tabele) izbegava ovaj floor. */
+  :where(:not([data-density='compact']) [class~="text-[13px]"]) {
+    font-size: var(--text-body);
+    line-height: var(--text-body-line);
+  }
+
+  :where([class~="text-[12px]"]) {
+    font-size: var(--text-meta);
+    line-height: var(--text-meta-line);
+  }
+
+  /* ==========================================================================
+     U-07 — JEDINSTVEN FOKUS
+     `outline: 2px solid var(--color-primary-fg); outline-offset: 2px` za sve.
+     `:focus-visible` (ne `:focus`) — miš ne dobija prsten.
+     ========================================================================== */
+  :where(a, button, [role='button'], [role='tab'], [role='menuitem'], summary, input, select, textarea, [tabindex]):focus-visible {
+    outline: 2px solid var(--color-primary-fg);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  /* Elementi sa `overflow: hidden` (ui-btn, pilule) — prsten unutra, isti izvor. */
+  .ui-btn:focus-visible,
+  .ui-icon-btn:focus-visible,
+  .ui-tab:focus-visible,
+  .forum-cat-card:focus-visible {
+    outline: 2px solid var(--color-primary-fg);
+    outline-offset: -2px;
+    box-shadow: none;
+  }
+
+  .ui-card-interactive:focus-within,
+  .forum-row:focus-within {
+    border-color: var(--color-primary-fg);
+  }
+
+  /* ==========================================================================
+     SEKCIONI HEADER — eyebrow + H2 + „Vidi sve“ (SectionHeader.tsx)
+     ========================================================================== */
+  .section-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 0.75rem 1.5rem;
+  }
+
+  /* 3.0 — kratka ljubičasta nit pod naslovom sekcije (akcent, ne dekoracija) */
+  .section-head-main::after {
+    content: "";
+    width: 2.5rem;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--gradient-prestige);
+  }
+
+  .section-head-main {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 0.375rem;
+  }
+
+  .section-head .eyebrow,
+  .nb-microbar .eyebrow {
+    color: var(--color-primary-fg);
+  }
+
+  .section-title {
+    font-family: var(--font-family-heading);
+    font-size: var(--text-h2);
+    line-height: var(--text-h2-line);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--color-text-primary);
+    text-wrap: balance;
+  }
+
+  /* H2 u uskoj koloni (desna rail, kartice) — jedan red, sa „…“ */
+  .section-title-tight {
+    font-size: var(--text-h3);
+    line-height: var(--text-h3-line);
+  }
+
+  .section-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    min-height: 2.5rem;
+    font-size: var(--text-meta);
+    font-weight: 600;
+    color: var(--color-text-secondary);
+    text-decoration: none;
+    transition: color var(--dur-fast) var(--ease-forge);
+  }
+
+  .section-link:hover {
+    color: var(--color-primary-fg);
+  }
+
+  /* ==========================================================================
+     HERO POJAS — slika preko celog pojasa, tekst na donjem sloju
+     Pojas ima dva sloja: (1) medija (slike + fade ka surface-0) i (2) sadržaj
+     (eyebrow, H1 max 2 reda, meta, jedan primarni CTA). `min-height` drži
+     sliku preko celog ekrana i cuando nema slike.
+     ========================================================================== */
+  .hero-band {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    /* svaki sloj unutra je odsečen — `width: max-content` ne diže `scrollWidth` */
+    overflow: clip;
+    margin-bottom: 2.5rem;
+    border-bottom: 1px solid var(--color-border-subtle);
+    background: var(--color-surface-0);
+  }
+
+  @media (max-width: 639.98px) {
+    .hero-band {
+      margin-inline: -1rem;
+    }
+  }
+
+  @media (min-width: 640px) and (max-width: 1023.98px) {
+    .hero-band {
+      margin-inline: -1.5rem;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .hero-band {
+      border-radius: 1rem;
+      margin-bottom: 3.5rem;
+    }
+  }
+
+  .hero-band-media {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    min-height: 14rem;
+    background: var(--color-surface-2);
+  }
+
+  .hero-band-media img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 700ms var(--ease-out-soft);
+  }
+
+  .hero-band:hover .hero-band-media img {
+    transform: scale(1.02);
+  }
+
+  .hero-band-media::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: var(--gradient-hero-band-fade);
+    pointer-events: none;
+  }
+
+  .hero-band-inner {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    min-height: 17rem;
+    max-width: 68rem;
+    margin-inline: auto;
+    padding: 4rem 1.5rem 2rem;
+  }
+
+  @media (min-width: 640px) {
+    .hero-band-inner {
+      padding: 5rem 1.5rem 2.25rem;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .hero-band-inner {
+      min-height: clamp(15rem, 28vh, 20rem);
+      padding: 4.5rem 2rem 2.25rem;
+    }
+  }
+
+  /* Ispod 1024 px H1 dobija treći red (naslov nikad ne sme da bude veći od ekrana) */
+  @media (max-width: 1023.98px) {
+    .hero-band-title {
+      -webkit-line-clamp: 3;
+    }
+  }
+
+  .hero-band-content {
+    display: flex;
+    max-width: 44rem;
+    flex-direction: column;
+    gap: 0.875rem;
+  }
+
+  /* Meta + CTA: jedan red na desktopu, na mobilnom CTA ide ispod meta reda. */
+  .hero-band-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.875rem;
+    margin-top: 0.25rem;
+  }
+
+  @media (min-width: 640px) {
+    .hero-band-actions {
+      flex-direction: row;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.75rem 1.25rem;
+    }
+  }
+
+  .hero-band-meta .meta-row {
+    color: var(--color-text-secondary);
+  }
+
+  .hero-band-content .eyebrow {
+    font-size: var(--text-micro);
+    letter-spacing: 0.1em;
+  }
+
+  .hero-band-title {
+    margin: 0;
+    font-family: var(--font-family-heading);
+    /* H1 u hero pojasu: 28 → 40 px — manji po za veličinu kartice */
+    font-size: clamp(1.75rem, 1rem + 2.4vw, 2.5rem);
+    line-height: 1.05;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    text-wrap: balance;
+    color: var(--color-text-primary);
+    /* Dva reda (brief), treći samo ispod 1024 px — uvek se skraćuje sa „…“ */
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    /* prekriva globalni `h1.line-height: 1.15` iz components-typography */
+    line-height: 1.05 !important;
+  }
+
+  a:hover .hero-band-title,
+  .hero-band:hover .hero-band-title {
+    color: var(--color-primary-fg);
+  }
+
+  a.hero-band-link:hover .hero-band-title {
+    color: var(--color-primary);
+  }
+
+  .hero-band-excerpt {
+    max-width: 38rem;
+    font-size: var(--text-body);
+    line-height: var(--text-body-line);
+    color: var(--color-text-secondary);
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+  }
+
+  /*
+   * Body ima `overflow-x: hidden`, pa širina `scrollWidth` raste sa `max-content`
+   * decom (ticker, redovi tema). `overflow-x: clip` odseca bez pravljenja skrol
+   * konteksta — 360–390 px ostaje bez horizontalnog skrola.
+   */
+  body {
+    overflow-x: clip;
+  }
+
+  /* ==========================================================================
+     POČETNA — pojas 2/3: sadržaj levo, popusti desno (sticky na desktopu)
+     ========================================================================== */
+  .home-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2rem;
+    align-items: start;
+  }
+
+  @media (min-width: 1280px) {
+    .home-grid {
+      grid-template-columns: minmax(0, 1fr) 21rem;
+      gap: 2.5rem;
+    }
+  }
+
+  .home-rail {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+  }
+
+  /* Na mobilnom je popust desna kolona ISPOD foruma: red je bitan (2 = Top
+     priče, 3 = Forum, pa popusti). */
+  @media (max-width: 1279.98px) {
+    .home-rail {
+      order: 3;
+      margin-top: 1rem;
+    }
+  }
+
+  @media (min-width: 1280px) {
+    .home-rail {
+      position: sticky;
+      top: 5.5rem;
+    }
+  }
+
+  /* ==========================================================================
+     STORY CARD — hero | card | compact (StoryCard.tsx)
+     Inkwell 1: hero 16:9, slika preko celog, tekst u dnu, ≤ 70vh.
+     ========================================================================== */
+  .story-hero {
+    position: relative;
+    display: block;
+    overflow: hidden;
+    border-radius: var(--radius-xl);
+    border: 1px solid var(--color-border-subtle);
+    background: var(--color-surface-2);
+    color: var(--color-text-primary);
+    text-decoration: none;
+    isolation: isolate;
+    aspect-ratio: 16 / 9;
+    /* ≤ 70vh na desktopu */
+    max-height: 70vh;
+  }
+
+  @media (max-width: 767.98px) {
+    .story-hero {
+      aspect-ratio: auto;
+      min-height: 18rem;
+      max-height: none;
+    }
+  }
+
+  .story-hero-media {
+    position: absolute;
+    inset: 0;
+  }
+
+  .story-hero-media img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 600ms var(--ease-out-soft);
+  }
+
+  .story-hero:hover .story-hero-media img {
+    transform: scale(1.02);
+  }
+
+  .story-hero::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: var(--gradient-hero-fade);
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .story-hero-body {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    min-height: 0;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    padding: 1.25rem;
+  }
+
+  @media (max-width: 639.98px) {
+    .story-hero-body {
+      padding: 1rem;
+    }
+  }
+
+  @media (min-width: 768px) {
+    .story-hero-body {
+      padding: 2rem 2.25rem;
+    }
+  }
+
+  .story-hero-title {
+    margin: 0;
+    font-family: var(--font-family-heading);
+    /* H1 na strani je najveći tekst: 36 → 56 px */
+    font-size: clamp(2.25rem, 1.4rem + 3vw, 3.5rem);
+    line-height: 1.05;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    text-wrap: balance;
+    color: var(--color-text-primary);
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+  }
+
+  .story-hero:hover .story-hero-title {
+    color: var(--color-primary-fg-light);
+  }
+
+  /* „card“ — horizontalna: slika levo ~40%, tekst desno */
+  /*
+   * 3.0 OBSIDIAN — kartica je sadržaj koji se čita: ink sloj (`surface-1`),
+   * hairline ivica i JEDNA ljubičasta nit sa leve strane. Bez senke i glow-a.
+   * Hover prelazi na teget (`surface-3`) — interakcija je hladnija od akcije.
+   */
+  .story-card-row {
+    display: flex;
+    align-items: stretch;
+    gap: 0.875rem;
+    padding: 0.625rem;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--color-border-subtle);
+    border-left: 2px solid var(--color-primary);
+    background: var(--color-surface-1);
+    color: var(--color-text-primary);
+    text-decoration: none;
+    transition:
+      border-color var(--dur-base) var(--ease-forge),
+      background-color var(--dur-base) var(--ease-forge);
+  }
+
+  .story-card-row:hover {
+    border-color: var(--color-border-strong);
+    border-left-color: var(--color-primary-hover);
+    background: var(--color-surface-3);
+  }
+
+  /* slika ~40% širine, fiksni odnos 16:10 (bez rastezanja reda) */
+  .story-card-media {
+    position: relative;
+    flex: 0 0 clamp(5rem, 34%, 9rem);
+    max-width: 9rem;
+    overflow: hidden;
+    border-radius: var(--radius-md);
+    background: var(--color-surface-2);
+    aspect-ratio: 16 / 10;
+  }
+
+  .story-card-media img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 500ms var(--ease-out-soft);
+  }
+
+  .story-card-row:hover .story-card-media img {
+    transform: scale(1.04);
+  }
+
+  .story-card-row > :last-child {
+    min-width: 0;
+  }
+
+  .story-card-title {
+    font-size: var(--text-h3);
+    line-height: var(--text-h3-line);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--color-text-primary);
+    text-wrap: pretty;
+  }
+
+  .story-card-row:hover .story-card-title {
+    color: var(--color-primary-fg);
+  }
+
+  /* „compact“ — red u sidebaru / sekundarnoj listi */
+  .story-compact {
+    display: grid;
+    grid-template-columns: 4.5rem minmax(0, 1fr);
+    gap: 0.75rem;
+    align-items: center;
+    padding: 0.625rem 0;
+    border-bottom: 1px solid var(--color-border-subtle);
+    color: var(--color-text-primary);
+    text-decoration: none;
+  }
+
+  .story-compact:last-child {
+    border-bottom-color: transparent;
+  }
+
+  .story-compact-media {
+    overflow: hidden;
+    border-radius: var(--radius-sm);
+    background: var(--color-surface-2);
+    aspect-ratio: 4 / 3;
+  }
+
+  .story-compact-media img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .story-compact-title {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    font-size: var(--text-meta);
+    line-height: var(--text-meta-line);
+    font-weight: 600;
+    color: var(--color-text-primary);
+  }
+
+  .story-compact:hover .story-compact-title {
+    color: var(--color-primary-fg);
+  }
+
+  /* ==========================================================================
+     THREAD ROW — forum lista bez okvira (ThreadRow.tsx)
+     ========================================================================== */
+  .thread-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.75rem;
+    min-height: 4.5rem;
+    padding: 0.625rem 0.25rem;
+    border-bottom: 1px solid var(--color-border-subtle);
+    text-decoration: none;
+    color: var(--color-text-primary);
+    transition: background-color var(--dur-fast) var(--ease-forge);
+  }
+
+  .thread-row:hover {
+    background: var(--color-surface-3);
+  }
+
+  .thread-row:last-child {
+    border-bottom-color: transparent;
+  }
+
+  .thread-row-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    flex-shrink: 0;
+    border-radius: var(--radius-md);
+    background: var(--color-secondary-glow);
+    border: 1px solid var(--color-secondary-glow);
+    color: var(--color-secondary);
+  }
+
+  .thread-row-title {
+    font-size: var(--text-h3);
+    line-height: var(--text-h3-line);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--color-text-primary);
+    transition: color var(--dur-fast) var(--ease-forge);
+  }
+
+  .thread-row:hover .thread-row-title {
+    color: var(--color-primary-fg);
+  }
+
+  /* Brojač odgovora: mono, cyan (forum zona) — isti izvor kao `forum-zone` */
+  .thread-replies {
+    font-family: var(--font-family-mono);
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    color: var(--color-secondary);
+    white-space: nowrap;
+  }
+
+  .thread-row:hover .thread-replies {
+    color: var(--color-secondary-hover);
+  }
+
+  /* flag ikonice (pin/lock/hot) — 14 px, ista linija sa naslovom */
+  .thread-flag {
+    display: inline-flex;
+    align-items: center;
+    color: var(--color-text-tertiary);
+    flex-shrink: 0;
+  }
+
+  .thread-flag.is-hot {
+    color: var(--color-deal);
+  }
+
+  .thread-flag.is-pinned {
+    color: var(--color-secondary);
+  }
+
+  .thread-flag.is-solved {
+    color: var(--color-community);
+  }
+
+  .thread-flag.is-locked {
+    color: var(--color-tertiary);
+  }
+
+  .thread-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.375rem;
+    font-size: var(--text-meta);
+    line-height: var(--text-meta-line);
+    color: var(--color-text-secondary);
+    white-space: nowrap;
+  }
+
+  .thread-meta>.dot {
+    color: var(--color-text-tertiary);
+  }
+
+  .thread-media {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-shrink: 0;
+  }
+
+  .thread-media .thread-replies {
+    font-size: var(--text-meta);
+    line-height: var(--text-meta-line);
+  }
+
+  @media (max-width: 639.98px) {
+    .thread-row {
+      grid-template-columns: auto minmax(0, 1fr);
+      row-gap: 0.375rem;
+    }
+
+    .thread-media {
+      grid-column: 2;
+      justify-content: flex-start;
+    }
+
+    /* Meta ostaje JEDNA linija („·“ separatori); višak se skraćuje sa „…“ */
+    .thread-meta {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .thread-meta .dot {
+      display: none;
+    }
+
+    .thread-meta > span + span::before {
+      content: "·";
+      margin: 0 0.25rem;
+      color: var(--color-text-tertiary);
+    }
+  }
+
+  /* ==========================================================================
+     PRICE TAG — cena hero (PriceTag.tsx): mono 28 px, original precrtan,
+     −% u primary, „ističe“ rose samo < 24 h
+     ========================================================================== */
+  .price-tag {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.125rem;
+    font-family: var(--font-family-mono);
+    font-variant-numeric: tabular-nums;
+    min-width: 0;
+  }
+
+  .price-tag-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.375rem;
+  }
+
+  .price-tag-value {
+    font-size: var(--text-price);
+    line-height: var(--text-price-line);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--color-text-primary);
+  }
+
+  /* Deals zona (3.0): cena je sam amber, mono/tabularno, 32px. */
+  .price-tag.is-deal .price-tag-value {
+    font-size: var(--text-price);
+    color: var(--color-deal);
+  }
+
+  .price-tag.is-deal .price-tag-discount {
+    color: var(--color-deal);
+  }
+
+  /*
+   * AMBER PILULE — puna amber površina + TAMAN tekst (`--color-on-deal`,
+   * 11,7:1). Rose je samo za istekli rok, nikad za sam popust.
+   */
+  .deal-discount-pill {
+    display: inline-flex;
+    align-items: center;
+    border-radius: var(--radius-sm);
+    background: var(--color-deal);
+    color: var(--color-on-deal);
+    padding: 0.125rem 0.375rem;
+    font-family: var(--font-family-mono);
+    font-size: var(--text-micro);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.25;
+  }
+
+  .deal-expiry-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    width: fit-content;
+    border-radius: var(--radius-sm);
+    background: var(--color-surface-0);
+    padding: 0.125rem 0.375rem;
+    font-family: var(--font-family-body);
+    font-size: var(--text-micro);
+    font-weight: 600;
+    line-height: 1.25;
+    color: var(--color-text-secondary);
+  }
+
+  /* „Ističe danas“ = rose zona (urgentni rok) */
+  .deal-expiry-pill.is-urgent {
+    color: var(--color-tertiary-fg);
+  }
+
+  .price-tag-original {
+    font-size: var(--text-meta);
+    color: var(--color-text-muted);
+    text-decoration: line-through;
+  }
+
+  .price-tag-discount {
+    font-size: var(--text-meta);
+    font-weight: 600;
+    color: var(--color-primary-fg);
+  }
+
+  .price-tag-expiry {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-family: var(--font-family-body);
+    font-size: var(--text-micro);
+    font-weight: 600;
+    color: var(--color-text-secondary);
+  }
+
+  .price-tag-expiry.is-urgent {
+    color: var(--color-tertiary-fg);
+  }
+
+  /* ==========================================================================
+     DEAL CARD — cena je najveći element kartice
+     ========================================================================== */
+  .deal-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    height: 100%;
+    padding: 0.875rem;
+    border-radius: var(--radius-lg);
+    /* Amber gornja nit 2px = jedina boja zone; ostatak je čista hairline ivica */
+    border: 1px solid var(--color-border-subtle);
+    border-top: 2px solid var(--color-deal);
+    background: var(--color-surface-1);
+    color: var(--color-text-primary);
+    text-decoration: none;
+    transition:
+      border-color var(--dur-base) var(--ease-forge),
+      background-color var(--dur-base) var(--ease-forge);
+  }
+
+  .deal-card:hover {
+    border-color: var(--color-border-strong);
+    background: var(--color-surface-3);
+  }
+
+  .deal-card.is-urgent {
+    border-color: var(--color-tertiary-glow);
+  }
+
+  .deal-card-cover {
+    overflow: hidden;
+    border-radius: var(--radius-md);
+    background: var(--color-surface-2);
+    aspect-ratio: 16 / 9;
+  }
+
+  .deal-card-cover img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .deal-card-title {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    font-size: var(--text-h3);
+    line-height: var(--text-h3-line);
+    font-weight: 600;
+    color: var(--color-text-primary);
+  }
+
+  .deal-card:hover .deal-card-title {
+    color: var(--color-primary-fg);
+  }
+
+  /* ==========================================================================
+     STAT TILE — nivo, XP, karma, postovi (StatTile.tsx)
+     ========================================================================== */
+  .stat-tile {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.75rem 0.875rem;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border-subtle);
+    background: var(--color-surface-1);
+  }
+
+  .stat-tile-value {
+    font-family: var(--font-family-mono);
+    font-size: var(--text-number);
+    line-height: var(--text-number-line);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+    color: var(--color-text-primary);
+  }
+
+  .stat-tile-label {
+    font-size: 0.75rem;
+    line-height: 1rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-text-tertiary);
+  }
+
+  /* ==========================================================================
+     AVATAR STACK (AvatarStack.tsx)
+     ========================================================================== */
+  .avatar-stack {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .avatar-stack>* {
+    margin-left: -0.5rem;
+    border-radius: 50%;
+    border: 2px solid var(--color-surface-0);
+    background: var(--color-surface-2);
+  }
+
+  .avatar-stack>*:first-child {
+    margin-left: 0;
+  }
+
+  .avatar-stack-more {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.75rem;
+    height: 1.75rem;
+    padding: 0 0.375rem;
+    font-family: var(--font-family-mono);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+  }
+
+  /* ==========================================================================
+     „PLAYER CARD“ ZAGLAVLJE — profil i rang-lista
+     ========================================================================== */
+  .player-card {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1.25rem;
+    padding: 1.25rem;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--color-border-subtle);
+    background: var(--color-surface-1);
+    box-shadow: var(--shadow-sm);
+  }
+
+  @media (min-width: 640px) {
+    .player-card {
+      padding: 1.5rem;
+    }
+  }
+
+  .player-card-avatar {
+    position: relative;
+    width: 6rem;
+    height: 6rem;
+    flex-shrink: 0;
+    border-radius: 50%;
+    padding: 3px;
+    background: linear-gradient(160deg, var(--color-primary-fg), var(--color-primary) 60%, var(--color-surface-3));
+  }
+
+  .player-card-avatar>img,
+  .player-card-avatar>span {
+    border-radius: 50%;
+  }
+
+  .player-level-track {
+    height: 0.5rem;
+    width: 100%;
+    overflow: hidden;
+    border-radius: 50%;
+    background: var(--color-surface-3);
+  }
+
+  .player-level-fill {
+    height: 100%;
+    border-radius: 50%;
+    background: var(--color-primary);
+    transition: width var(--dur-slow) var(--ease-out-soft);
+  }
+
+  .medal-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  /* ==========================================================================
+     „PLAYER CARD“ metrike — 4 StatTile u jednom redu (Nivo, XP, Karma, Postovi)
+     ========================================================================== */
+  .player-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+    border-top: 0;
+  }
+
+  @media (min-width: 768px) {
+    .player-stat-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+
+  .player-stat-grid .profile-stat-cell {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+    padding: 0.75rem 0.875rem;
+    border-left: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-md);
+    background: var(--color-surface-2);
+  }
+
+  .player-stat-grid .profile-stat-cell:first-child,
+  .player-stat-grid .profile-stat-cell:nth-child(3) {
+    border-left: 1px solid var(--color-border-subtle);
+    padding-left: 0.875rem;
+  }
+
+  .player-stat-grid .profile-stat-cell-icon {
+    width: 1.5rem;
+    height: 1.5rem;
+  }
+
+  .player-stat-grid .profile-stat-cell-value {
+    font-size: var(--text-number);
+    line-height: var(--text-number-line);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+  }
+
+  .player-stat-grid .profile-stat-cell-label {
+    font-size: 0.75rem;
+    line-height: 1rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-text-tertiary);
+  }
+
+  .player-level-track {
+    height: 0.5rem;
+    border: 0;
+    border-radius: 999px;
+    background: var(--color-surface-3);
+    overflow: hidden;
+  }
+
+  .player-level-fill,
+  .profile-level-fill {
+    border-radius: var(--radius-sm);
+    /* XP napredak = emerald zona (zajednica/rang) */
+    background: var(--color-community);
+  }
+
+  .player-card-name {
+    font-family: var(--font-family-heading);
+    letter-spacing: -0.02em;
+  }
+
+  /* Bedž (medalja) sa tooltipom: `<button title>`/`<span title>` je dovoljno */
+  .profile-medal {
+    width: auto;
+    height: 2rem;
+    padding: 0 0.5rem;
+    border-radius: var(--radius-sm);
+  }
+
+  /*
+   * Medalja = duguljasta pilula (ikona + ime), ne krug. Dimenzije idu preko
+   * padding-a — bez fiksne širine da ime može da diše. Ikonica je jedini
+   * nosač boje (rang/retkost); ime ostaje čitljivo na sekundarnoj boji.
+   */
+  .medal {
+    position: relative;
+    isolation: isolate;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    height: 1.375rem;
+    padding: 0 0.4375rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--color-border-default);
+    background: var(--color-surface-2);
+    color: var(--color-primary-fg);
+    white-space: nowrap;
+    overflow: hidden;
+  }
+
+  .medal-name {
+    font-family: var(--font-family-body);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--color-text-secondary);
+  }
+
+  /* Sheen u boji ranga — prolazi kroz pilulu (z-index -1, ispod sadržaja) */
+  .medal::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: linear-gradient(
+      110deg,
+      transparent 35%,
+      color-mix(in srgb, currentColor 18%, transparent) 50%,
+      transparent 65%
+    );
+    background-size: 220% 100%;
+    background-position: -150% 50%;
+    animation: medal-sheen 4.5s ease-in-out infinite;
+    pointer-events: none;
+  }
+
+  .medal:nth-child(2)::after { animation-delay: 0.4s; }
+  .medal:nth-child(3)::after { animation-delay: 0.8s; }
+  .medal:nth-child(4)::after { animation-delay: 1.2s; }
+  .medal:nth-child(n + 5)::after { animation-delay: 1.6s; }
+
+  @keyframes medal-sheen {
+    0% { background-position: -150% 50%; }
+    60%, 100% { background-position: 250% 50%; }
+  }
+
+  .medal.is-locked {
+    color: var(--color-text-disabled);
+    background: transparent;
+  }
+
+  .medal-more {
+    width: auto;
+    min-width: 1.375rem;
+    padding: 0 0.4375rem;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-family-mono);
+    font-size: 0.625rem;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+  }
+
+  /*
+   * MedalRow — prve tri medalje nose RANG boje. Boja je namjerno samo prsten
+   * + ikona: retkost bedža (BadgeChip) ostaje netaknuta, pa se ne miješaju
+   * dva jezika. `gold/silver/bronze-rank` su jedini izvor.
+   */
+  .medal.medal-rank-1 {
+    border-color: var(--color-gold-rank);
+    color: var(--color-gold-rank);
+  }
+
+  .medal.medal-rank-2 {
+    border-color: var(--color-silver-rank);
+    color: var(--color-silver-rank);
+  }
+
+  .medal.medal-rank-3 {
+    border-color: var(--color-bronze-rank);
+    color: var(--color-bronze-rank);
+  }
+
+  /* PlayerCard (PlayerCard.tsx) — raspored unutar `.player-card` */
+  .player-card {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1rem;
+  }
+
+  .player-card-top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .player-card-identity {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+    flex: 1 1 12rem;
+  }
+
+  .player-card-name-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+
+  .player-card-name-row > :first-child {
+    font-family: var(--font-family-heading);
+    font-size: var(--text-h2);
+    line-height: var(--text-h2-line);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--color-text-primary);
+  }
+
+  .player-card-handle {
+    font-family: var(--font-family-mono);
+    font-size: var(--text-meta);
+    color: var(--color-text-secondary);
+  }
+
+  .player-card-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .player-level {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+  }
+
+  .player-level-label {
+    font-size: var(--text-meta);
+    line-height: var(--text-meta-line);
+    color: var(--color-text-secondary);
+  }
+
+  .player-level-label strong {
+    font-family: var(--font-family-mono);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    /* Nivo i XP u emerald zoni */
+    color: var(--color-community);
+    font-size: inherit;
+  }
+
+  /* ==========================================================================
+     DRAWER — filteri (< 1024px) i detalji u adminu
+     ========================================================================== */
+  .ui-drawer-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    display: flex;
+    justify-content: flex-end;
+    /* Zamućenje je samo na panelu — backdrop ne duplira isti blur (budžet: ≤ 6) */
+    background: var(--color-overlay);
+    animation: fadeIn 0.18s var(--ease-forge);
+  }
+
+  .ui-drawer {
+    display: flex;
+    flex-direction: column;
+    width: min(24rem, 100vw);
+    height: 100%;
+    border-left: 1px solid var(--color-border-default);
+    background: var(--glass-bg-strong);
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    backdrop-filter: blur(var(--glass-blur));
+    box-shadow: var(--shadow-lg);
+  }
+
+  .ui-drawer-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--color-border-subtle);
+  }
+
+  .ui-drawer-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1.25rem;
+  }
+
+  .ui-drawer-footer {
+    padding: 1rem 1.25rem;
+    border-top: 1px solid var(--color-border-subtle);
+  }
+
+  @media (max-width: 639.98px) {
+    .ui-drawer-backdrop {
+      align-items: flex-end;
+      justify-content: center;
+    }
+
+    .ui-drawer {
+      width: 100%;
+      height: min(85vh, 44rem);
+      border-left: 0;
+      border-top: 1px solid var(--color-border-default);
+      border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    }
+  }
+
+  /* Sidebar = sporedni kanal: samo leva nit + manji naslov, bez kartice */
+  .rail-panel {
+    border-left: 1px solid var(--color-border-default);
+    padding-left: 1rem;
+  }
+
+  @media (min-width: 1024px) {
+    .rail-panel {
+      padding-left: 1.25rem;
+    }
+  }
+
+  .rail-title {
+    font-size: var(--text-label);
+    line-height: var(--text-label-line);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-text-tertiary);
+  }
+
+  /* Glavna akcija ekrana (U-04): mirna podloga, akcent samo na dugmetu. */
+  .primary-action-panel {
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--color-border-subtle);
+    background: var(--color-surface-1);
+    box-shadow: var(--shadow-sm);
+    padding: 1.25rem;
+  }
+
+  /* ==========================================================================
+     POPUSTI — leva kolona filtera ≥ 1280 px, Drawer ispod; grid 1/2/3
+     ========================================================================== */
+  .deal-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2rem;
+    align-items: start;
+  }
+
+  .deal-filters-rail {
+    display: none;
+  }
+
+  .deal-filter-trigger {
+    display: inline-flex;
+  }
+
+  @media (min-width: 1280px) {
+    .deal-layout {
+      grid-template-columns: 15rem minmax(0, 1fr);
+      gap: 2.5rem;
+    }
+
+    .deal-filters-rail {
+      position: sticky;
+      top: 6rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+      padding-right: 1.25rem;
+      border-right: 1px solid var(--color-border-subtle);
+    }
+
+    .deal-filter-trigger {
+      display: none !important;
+    }
+  }
+
+  .deal-filters {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .deal-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1rem;
+  }
+
+  @media (min-width: 640px) {
+    .deal-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  /* 3 kolone na ≥ 1280 px — tu već postoji leva kolona filtera (spec: 1/2/3) */
+  @media (min-width: 1280px) {
+    .deal-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  /* Bez leve kolone filtera („Vidi sve“ / pretraga) — 1 / 2 / 3 kolone */
+  .deal-grid--wide {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.25rem 1rem;
+  }
+
+  @media (min-width: 640px) {
+    .deal-grid--wide {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (min-width: 1280px) {
+    .deal-grid--wide {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  /* ==========================================================================
+     U-02 / U-03 / U-04 — lista zajednice (legacy klasa, bez okvira)
+     ========================================================================== */
+  .community-item {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.5rem 1rem;
+    padding: 0.875rem 0;
+    border-bottom: 1px solid var(--color-border-subtle);
+    text-decoration: none;
+    transition: background-color var(--dur-base) var(--ease-forge);
+  }
+
+  .community-item:last-child {
+    border-bottom-color: transparent;
+  }
+
+  .community-item:hover {
+    background: var(--color-surface-3);
+  }
+
+  .community-item:hover .story-card-title {
+    color: var(--color-primary-fg);
+  }
+
+  /* ==========================================================================
+     U-08 — PRINT (dugo čitanje, članci i teme)
+     ========================================================================== */
+  @media print {
+
+    /* Print uvek svetlo, bez glow-a — bez obzira na temu (U-08). */
+    :root {
+      color-scheme: light;
+      --color-surface-0: #ffffff;
+      --color-surface-1: #ffffff;
+      --color-text-primary: #111;
+      --color-text-secondary: #333;
+      --color-text-tertiary: #444;
+      --color-border-default: #d4d4d4;
+    }
+
+    nav.sticky,
+    .mobile-tabbar,
+    .forge-footer,
+    footer,
+    aside,
+    .no-print {
+      display: none !important;
+    }
+
+    body {
+      background: #ffffff !important;
+      color: #111;
+      animation: none !important;
+    }
+
+    .article-rich-content,
+    .thread-content {
+      font-size: 11.5pt;
+      line-height: 1.55;
+    }
+
+    a {
+      text-decoration: underline;
+    }
+
+    .ui-card,
+    .ui-card-static,
+    .ui-card-elevated {
+      background: #ffffff !important;
+      border-color: #d4d4d4 !important;
+      box-shadow: none !important;
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
+  }
+}

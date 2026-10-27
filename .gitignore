@@ -35,6 +35,8 @@ npm-debug.log*
 # Temporary
 .tmp/
 .cache/
+# N-11 — stanje instalacije (hash package.json-a po paketu); piše ga postinstall
+.npm-install-state.json
 
 # Lokalno fallback skladište (badges/connected accounts/sesije dok schema-ALL.sql
 # nije pokrenut) — ne treba u repozitorijumu
@@ -46,6 +48,21 @@ qa-*.mjs
 qa-*.png
 .qa/shots/
 *.snap.png
+# 2.13.7 — celo `.qa/` je lokalna radionica: screenshot-ovi i probe skripte.
+# Ranije je bio u repo-u, pa je svaki prolaz QA dodavao desetine PNG-ova.
+.qa/
 
 # Test / coverage izlaz
 coverage/
+# N-05 — Playwright
+playwright-report/
+test-results/
+blob-report/
+
+*storybook.log
+
+# 2.13.3 - stanje RSS uvoza i keš AI prevoda (lokalno, ne u git)
+.rss-state.json
+.ai-cache.json
+
+

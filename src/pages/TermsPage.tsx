@@ -1,16 +1,10 @@
-import { Link } from 'react-router-dom';
-import { FileText, Shield, Scale } from 'lucide-react';
+﻿import { LegalLayout, type LegalDoc } from '../components/legal/LegalLayout';
 
-interface Section {
-  id: string;
-  title: string;
-  body: string[];
-  bullets?: string[];
-  italic?: string;
-}
-
-/** F-28 — tekst lektorisan; č/ć/ž/š/đ ispravno (latinica). */
-const SECTIONS: Section[] = [
+/**
+ * U-13 — Uslovi korišćenja koriste pravni okvir (`LegalLayout`): sadržaj
+ * dokumenta sa leve strane, put nazad u NEXUS sa desne. Tekst je nepromenjen (F-28).
+ */
+const SECTIONS: LegalDoc['sections'] = [
   {
     id: '1',
     title: 'Uslovi korišćenja i odgovornost',
@@ -80,60 +74,21 @@ const SECTIONS: Section[] = [
   },
 ];
 
+export const TERMS_DOC: LegalDoc = {
+  eyebrow: 'Legal',
+  title: 'Uslovi korišćenja',
+  description:
+    'Pravila korišćenja portala, odgovornost naloga i sadržaja, moderacija i izmene uslova — na jednom mestu, uvek dostupno.',
+  version: 'Verzija 3.0 — Datum važenja: 20.10.2026.',
+  icon: 'scale',
+  sections: SECTIONS,
+};
+
 export default function TermsPage() {
   return (
-    <div className="section">
-      <div className="container max-w-4xl">
-        <div className="text-center mb-10">
-          <div className="eyebrow mb-4">
-            <Scale size={14} />
-            Legal
-          </div>
-          <h1 className="page-title mb-3">Uslovi korišćenja</h1>
-          <p className="text-white/60 text-sm">Verzija 3.0 — Datum važenja: 20.10.2026.</p>
-        </div>
-
-        <div className="rounded-lg border border-white/[0.09] bg-surface-1 p-6 md:p-8 space-y-8">
-          {SECTIONS.map((section) => (
-            <section key={section.id} className="terms-section">
-              <h3 className="flex items-center gap-2 mb-3">
-                <span className="w-6 h-6 rounded-md bg-[var(--color-primary-subtle)] border border-[var(--color-primary)]/30 grid place-items-center text-xs font-bold text-[var(--color-primary-fg)] flex-shrink-0">
-                  {section.id}
-                </span>
-                <span className="text-[var(--color-primary-fg)] font-bold">{section.title}</span>
-              </h3>
-              {section.body.map((p, i) => (
-                <p key={i} className="text-white/55 text-sm leading-relaxed mb-2">{p}</p>
-              ))}
-              {section.bullets && (
-                <ul className="space-y-1.5 pl-1">
-                  {section.bullets.map((b, i) => (
-                    <li key={i} className="text-white/55 text-sm leading-relaxed flex gap-2">
-                      <span className="text-[var(--color-primary)] mt-0.5">•</span>
-                      <span>{b}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {section.italic ? (
-                <p className="text-white/50 text-sm italic leading-relaxed border-l-2 border-[var(--color-primary)]/30 pl-4 mt-3">
-                  {section.italic}
-                </p>
-              ) : null}
-            </section>
-          ))}
-        </div>
-
-        <div className="flex items-center justify-center gap-6 mt-8 text-sm">
-          <Link to="/privacy" className="text-[var(--color-primary-fg)] hover:text-[var(--color-primary-hover)] transition flex items-center gap-1.5">
-            <Shield size={15} /> Politika privatnosti
-          </Link>
-          <span className="text-white/20">|</span>
-          <Link to="/rules" className="text-[var(--color-primary-fg)] hover:text-[var(--color-primary-hover)] transition flex items-center gap-1.5">
-            <FileText size={15} /> Pravila foruma
-          </Link>
-        </div>
-      </div>
-    </div>
+    <LegalLayout
+      doc={TERMS_DOC}
+      footerNote="Vidi i Politiku privatnosti i Pravila foruma — dokumenti su povezani i važe zajedno."
+    />
   );
 }

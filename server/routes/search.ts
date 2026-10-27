@@ -3,6 +3,7 @@
  *
  *   /api/search?q=hogwarts                    → po 10 članaka/tema/deal-ova
  *   /api/search?q=hogwarts&type=threads&limit=20
+ *   /api/search?q=hogwarts&type=replies      → pogoci u odgovorima foruma
  *   /api/search?q=ho                           → 400 (minimum 2 znaka)
  *
  * Ruta je javna (gost pretražuje isto što i prijavljeni); rate limit je u
@@ -13,7 +14,7 @@ import { searchAll, MIN_QUERY_LENGTH, TS_CONFIG, type SearchType } from '../lib/
 
 const router = Router();
 
-const TYPES: SearchType[] = ['all', 'articles', 'threads', 'deals'];
+const TYPES: SearchType[] = ['all', 'articles', 'threads', 'replies', 'deals'];
 
 router.get('/', async (req, res, next) => {
   try {

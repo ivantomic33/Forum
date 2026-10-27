@@ -88,6 +88,12 @@ export function usePageMeta({
     setMeta('name', 'twitter:title', fullTitle);
     setMeta('name', 'twitter:description', description);
     if (absoluteImage) setMeta('name', 'twitter:image', absoluteImage);
+    // N-13 — dimenzije OG slike (1200×630) da mreže ne režu preview na 1.91:1.
+    if (absoluteImage) {
+      setMeta('property', 'og:image:width', '1200');
+      setMeta('property', 'og:image:height', '630');
+      setMeta('property', 'og:image:alt', fullTitle);
+    }
 
     const scriptId = 'route-json-ld';
     document.getElementById(scriptId)?.remove();
@@ -122,6 +128,39 @@ export function newsArticleJsonLd(input: {
     dateModified: input.dateModified ?? input.datePublished,
     author: { '@type': 'Person', name: input.author ?? SITE_NAME },
     publisher: { '@type': 'Organization', name: SITE_NAME },
+  };
+}
+
+/**
+ * 2.8.0 — JSON-LD za vodič (`TechArticle` + `about: VideoGame`).
+ * Google prikazuje rich-resultate za uputstva; `about` vezuje vodič za igru.
+ */
+export function guideJsonLd(input: {
+  headline: string;
+  description: string;
+  url: string;
+  datePublished: string;
+  dateModified?: string;
+  author: string;
+  gameTitle: string;
+  image?: string;
+}) {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'TechArticle',
+    headline: input.headline,
+    description: input.description,
+    mainEntityOfPage: { '@type': 'WebPage', '@id': input.url },
+    image: input.image ? [input.image] : undefined,
+    datePublished: input.datePublished,
+    dateModified: input.dateModified ?? input.datePublished,
+    author: { '@type': 'Person', name: input.author },
+    publisher: { '@type': 'Organization', name: SITE_NAME },
+    about: {
+      '@type': 'VideoGame',
+      name: input.gameTitle,
+      url: input.url.split('/guides/')[0],
+    },
   };
 }
 

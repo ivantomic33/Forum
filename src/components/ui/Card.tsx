@@ -12,9 +12,11 @@ export interface CardProps extends HTMLAttributes<HTMLDivElement> {
   interactive?: boolean;
   /** Uklanja default padding (npr. kada kartica ima sliku do ivice). */
   flush?: boolean;
+  /** Mala kartica u mreži (stat pločice) — 14 px padding, spec za ≤ 640 px. */
+  compact?: boolean;
 }
 
-export function Card({ variant = 'default', interactive, flush, className, children, ...rest }: CardProps) {
+export function Card({ variant = 'default', interactive, flush, compact, className, children, ...rest }: CardProps) {
   return (
     <div
       className={cn(
@@ -23,6 +25,7 @@ export function Card({ variant = 'default', interactive, flush, className, child
         variant === 'elevated' && 'ui-card-elevated',
         interactive && 'ui-card-interactive',
         flush && '!p-0 overflow-hidden',
+        compact && 'ui-card-compact',
         className,
       )}
       {...rest}
@@ -34,15 +37,16 @@ export function Card({ variant = 'default', interactive, flush, className, child
 
 export function CardHeader({ title, subtitle, icon, action }: { title: ReactNode; subtitle?: ReactNode; icon?: ReactNode; action?: ReactNode }) {
   return (
-    <div className="mb-4 flex items-start justify-between gap-3 border-b border-white/[0.07] pb-3">
+    <div className="mb-4 flex items-start justify-between gap-3 border-b border-[var(--color-border-subtle)] pb-3">
       <div className="min-w-0">
-        <h3 className="flex items-center gap-2 font-display text-[15px] font-semibold text-white">
+        <h3 className="flex items-center gap-2 font-display text-[1.0625rem] font-semibold text-[var(--color-text-primary)]">
           {icon}
           {title}
         </h3>
-        {subtitle && <p className="mt-1 text-[13px] leading-relaxed text-white/55">{subtitle}</p>}
+        {subtitle && <p className="mt-1 text-[var(--text-meta)] leading-[var(--text-meta-line)] text-[var(--color-text-secondary)]">{subtitle}</p>}
       </div>
       {action}
     </div>
   );
 }
+

@@ -100,6 +100,7 @@ export default function DealsPage() {
         }))}
         value={sort}
         onChange={(value) => setParam('sort', value === 'top' ? '' : value)}
+        tone="deal"
         ariaLabel="Sortiranje deal-ova"
       />
     ),
@@ -110,13 +111,13 @@ export default function DealsPage() {
   return (
     <div className="section">
       <div className="container">
-        {/* Header */}
-        <header className="mb-8 border-b border-white/[0.07] pb-7">
+        {/* Header — AMBER ZONA: suptilni `--gradient-deal` veo iza naslova */}
+        <header className="deals-section-header mb-8 pb-7">
           <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
             <div className="min-w-0">
               <span className="eyebrow mb-3">Deals / Popusti</span>
               <h1 className="page-title">Gde je najjeftiniji…</h1>
-              <p className="mt-3 max-w-2xl text-[15px] leading-relaxed text-white/55">
+              <p className="text-lead mt-3 max-w-2xl">
                 Popusti koje objavljuje zajednica. Proverite cenu, glasajte za najbolje ponude i pronađite igru po
                 najnižoj ceni — Steam, Epic, GOG, PlayStation, Xbox i ostali.
               </p>
@@ -129,28 +130,28 @@ export default function DealsPage() {
           </div>
 
           <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Card variant="static" className="!p-3.5">
-              <Tag size={15} className="mb-2 text-cyan-400/80" aria-hidden="true" />
-              <div className="font-mono text-xl font-semibold tabular-nums text-white">{total.toLocaleString('sr-Latn-RS')}</div>
+            <Card variant="static" compact>
+              <Tag size={15} className="mb-2 text-[var(--color-text-tertiary)]" aria-hidden="true" />
+              <div className="font-mono text-xl font-semibold tabular-nums text-[var(--color-text-primary)]">{total.toLocaleString('sr-Latn-RS')}</div>
               <div className="mt-0.5 text-[11px] text-[var(--color-text-tertiary)]">aktivnih deal-ova</div>
             </Card>
-            <Card variant="static" className="!p-3.5">
-              <BadgePercent size={15} className="mb-2 text-violet-300/90" aria-hidden="true" />
-              <div className="font-mono text-xl font-semibold tabular-nums text-white">
+            <Card variant="static" compact>
+              <BadgePercent size={15} className="mb-2 text-[var(--color-deal)]" aria-hidden="true" />
+              <div className="font-mono text-xl font-semibold tabular-nums text-[var(--color-text-primary)]">
                 {deals.length ? `${Math.max(...deals.map((deal) => deal.discountPct))}%` : '—'}
               </div>
               <div className="mt-0.5 text-[11px] text-[var(--color-text-tertiary)]">najveći popust na strani</div>
             </Card>
-            <Card variant="static" className="!p-3.5">
-              <Radio size={15} className="mb-2 text-amber-300/90" aria-hidden="true" />
-              <div className="font-mono text-xl font-semibold tabular-nums text-white">
+            <Card variant="static" compact>
+              <Radio size={15} className="mb-2 text-[var(--color-text-tertiary)]" aria-hidden="true" />
+              <div className="font-mono text-xl font-semibold tabular-nums text-[var(--color-text-primary)]">
                 {deals.filter((deal) => deal.expiresAt).length}
               </div>
               <div className="mt-0.5 text-[11px] text-[var(--color-text-tertiary)]">ima ograničen rok</div>
             </Card>
-            <Card variant="static" className="!p-3.5">
-              <Sparkles size={15} className="mb-2 text-emerald-300/90" aria-hidden="true" />
-              <div className="font-mono text-xl font-semibold tabular-nums text-white">
+            <Card variant="static" compact>
+              <Sparkles size={15} className="mb-2 text-[var(--color-text-tertiary)]" aria-hidden="true" />
+              <div className="font-mono text-xl font-semibold tabular-nums text-[var(--color-text-primary)]">
                 {deals.filter((deal) => deal.isVerified).length}
               </div>
               <div className="mt-0.5 text-[11px] text-[var(--color-text-tertiary)]">proverenih dokaza</div>
@@ -184,7 +185,7 @@ export default function DealsPage() {
                     setSearchDraft('');
                     setParam('search', '');
                   }}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-white/40 hover:text-white"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
                   aria-label="Obriši pretragu"
                 >
                   <X size={14} />
@@ -200,7 +201,7 @@ export default function DealsPage() {
             >
               Filteri
               {activeFilterCount > 0 && (
-                <span className="ml-1 rounded-full bg-cyan-500/20 px-1.5 font-mono text-[10px] text-cyan-200">{activeFilterCount}</span>
+                <span className="ml-1 rounded-full bg-[var(--color-deal)] px-1.5 font-mono text-[10px] font-semibold text-[var(--color-on-deal)]">{activeFilterCount}</span>
               )}
             </Button>
           </div>
@@ -309,7 +310,8 @@ export default function DealsPage() {
           />
         ) : (
           <>
-            <div className="grid gap-4">
+            {/* 1 / 2 / 3 kolone — cena je najveći element kartice */}
+            <div className="deal-grid deal-grid--wide">
               {deals.map((deal) => (
                 <DealCard key={deal.id} deal={deal} />
               ))}
@@ -328,9 +330,9 @@ export default function DealsPage() {
           </>
         )}
 
-        <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.06] pt-4">
+        <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--color-border-subtle)] pt-4">
           <DealWarning />
-          <Link to="/games" className="text-xs text-cyan-300/80 hover:text-cyan-200">
+          <Link to="/games" className="text-meta text-[var(--color-text-secondary)] hover:text-[var(--color-primary-fg)]">
             Pregledaj igre sa aktivnim popustima →
           </Link>
         </div>

@@ -1,0 +1,116 @@
+/**
+ * SLOJ 3 — POMOĆNE KLASE (sr-only, skip-link, kontejneri i sl.)
+ *
+ * U-02 — `.grid-cols-N` je Tailwind class; u `@layer components` ona ne postoji,
+ * pa su se ranije mreže sekcija (početna, deals, forum stats) skupljale u JEDNU
+ * kolonu iako im je u JSX-u bila naveden grid. Ovo su iste vrednosti kao u
+ * Tailwind v4, tako da se `grid-cols-2 md:grid-cols-4` ponaša kako piše.
+ */
+@layer components-utilities {
+  @media (width >= 40rem) {
+    .grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  }
+
+  @media (width >= 48rem) {
+    .md\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .md\:grid-cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  }
+
+  @media (width >= 64rem) {
+    .lg\:grid-cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  }
+
+  /* ——— Toast — mirna površina, glass dozvoljen (Navbar/Modal/Drawer/Toast) ——— */
+  [data-sonner-toast] {
+    --normal-bg: var(--color-surface-2);
+    --normal-border: var(--color-border-strong);
+    --normal-text: var(--color-text-primary);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-md);
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    backdrop-filter: blur(var(--glass-blur));
+    font-family: var(--font-family-body);
+    font-size: var(--text-meta);
+  }
+
+  [data-sonner-toast][data-type='success'] {
+    --normal-border: var(--color-success-glow);
+  }
+
+  [data-sonner-toast][data-type='error'] {
+    --normal-border: var(--color-error-glow);
+  }
+
+  /* ——— Motion: bez translate/scale pod reduced-motion, boje ostaju ——— */
+  @media (prefers-reduced-motion: reduce) {
+    .ui-card-interactive:hover,
+    .cyber-card:hover,
+    .forum-cat-card:hover,
+    .forum-cat-card:active,
+    .btn-primary:hover,
+    .br-primary:hover:not(:disabled),
+    .ui-state-icon,
+    body,
+    .ui-btn:active:not(:disabled) {
+      transform: none !important;
+      animation: none !important;
+    }
+
+    .forum-cat-card:hover .forum-cat-arrow {
+      transform: none;
+    }
+  }
+
+  /* ——— Rang lista: podijum ——— */
+  .podium-card {
+    position: relative;
+    background: var(--color-surface-1);
+    border: 1px solid var(--color-border-subtle);
+    overflow: hidden;
+    transition:
+      background-color var(--dur-base) var(--ease-forge),
+      border-color var(--dur-base) var(--ease-forge);
+  }
+
+  .podium-card:hover {
+    background: var(--color-surface-3);
+    border-color: var(--color-border-strong);
+  }
+
+  /* #2 i #3 — status bez nove boje: samo svetlija teget ivica */
+  .podium-card--second,
+  .podium-card--third {
+    border-color: var(--color-border-strong);
+  }
+
+  /*
+   * #1 — PRESTIGE: ljubičasto-royal prsten (2px), tamnija podloga i jača
+   * tipografija. Samo pobednik nosi boju gradijenta; bez glow-a.
+   */
+  .podium-card--winner {
+    padding-block: 2rem;
+    background-color: var(--color-surface-2);
+    border: 2px solid var(--color-primary);
+    border-image: var(--gradient-prestige-ring) 1;
+  }
+
+  .podium-card--winner::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 12%;
+    right: 12%;
+    height: 2px;
+    background: var(--gradient-prestige-ring);
+  }
+
+  .podium-card--winner:hover {
+    border-color: var(--color-primary-hover);
+  }
+
+  /* Prsten avatara #1 je statičan (bez pulsiranja) — ljubičasta → royal */
+  .podium-card--winner img {
+    box-shadow: 0 0 0 2px var(--color-primary);
+  }
+}

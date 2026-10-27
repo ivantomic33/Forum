@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Copy, ExternalLink, ImageOff, Search, Trash2 } from 'lucide-react';
+import { Copy, ExternalLink, ImageOff, Search, Trash2, ZoomIn } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
 import { EmptyState, ErrorState, Skeleton } from '../ui/Feedback';
 import { Button } from '../ui/Button';
+import { ImageLightbox, type LightboxImage } from '../ui/ImageLightbox';
 
 /**
  * 2.6.3 — medijska galerija (admin).
@@ -15,6 +16,7 @@ import { Button } from '../ui/Button';
 export function MediaGallery({ onPick, compact = false }: { onPick?: (url: string) => void; compact?: boolean }) {
   const [filter, setFilter] = useState('');
   const [kind, setKind] = useState<'all' | 'avatar' | 'cover' | 'proof' | 'article'>('all');
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const queryClient = useQueryClient();
 
   const mediaQuery = useQuery({
@@ -94,19 +96,29 @@ export function MediaGallery({ onPick, compact = false }: { onPick?: (url: strin
         <EmptyState icon={<ImageOff size={18} />} title="Nema slika" message="Otpremi avatar, koricu ili sliku članka — pojaviće se ovde." />
       ) : (
         <div className={`grid gap-3 ${compact ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4'}`}>
-          {items.map((item) => (
+          {items.map((item, index) => (
             <figure key={item.path} className="group overflow-hidden rounded-lg border border-white/10 bg-white/[0.02]">
               <button
                 type="button"
                 onClick={() => {
-                  if (!onPick) return;
-                  onPick(item.url);
-                  toast.success('Slika je izabrana.');
+                  // F-LB — bez `onPick` je pregledač: klik otvara Lightbox sa svim
+                  // filtriranim slikama (navigacija ←/→); sa `onPick` ostaje birač.
+                  if (onPick) {
+                    onPick(item.url);
+                    toast.success('Slika je izabrana.');
+                    return;
+                  }
+                  setLightboxIndex(index);
                 }}
-                className="block aspect-[4/3] w-full overflow-hidden"
-                title={onPick ? 'Izaberi ovu sliku' : item.path}
+                className="group/img relative block aspect-[4/3] w-full overflow-hidden"
+                title={onPick ? 'Izaberi ovu sliku' : 'Uvećaj sliku'}
               >
                 <img src={item.url} alt={item.name} loading="lazy" className="h-full w-full object-cover transition group-hover:scale-[1.03]" />
+                {!onPick && (
+                  <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition group-hover/img:bg-black/40 group-hover/img:opacity-100">
+                    <ZoomIn size={26} className="text-white" aria-hidden="true" />
+                  </span>
+                )}
               </button>
               <figcaption className="space-y-1 p-2">
                 <p className="truncate font-mono text-[10px] text-[var(--color-text-muted)]" title={item.path}>
@@ -142,6 +154,16 @@ export function MediaGallery({ onPick, compact = false }: { onPick?: (url: strin
             </figure>
           ))}
         </div>
+      )}
+
+      {/* F-LB — Lightbox za pregled (kada galerija nije u režimu birača). */}
+      {!onPick && lightboxIndex !== null && items.length > 0 && (
+        <ImageLightbox
+          images={items.map((item): LightboxImage => ({ src: item.url, alt: item.name }))}
+          index={Math.min(lightboxIndex, items.length - 1)}
+          onClose={() => setLightboxIndex(null)}
+          onIndexChange={setLightboxIndex}
+        />
       )}
     </div>
   );

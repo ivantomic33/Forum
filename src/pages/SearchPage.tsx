@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { FileText, Gamepad2, MessageSquare, Search as SearchIcon, Tag } from 'lucide-react';
+import { FileText, Gamepad2, MessageSquare, MessagesSquare, Search as SearchIcon, Tag } from 'lucide-react';
 import { api, type SearchHit } from '../lib/api';
+import type { SearchScope } from '../../contracts/index';
 import { usePageMeta } from '../lib/pageMeta';
 import { Badge, EmptyState, ErrorState, SkeletonRows, Tabs } from '../components/ui';
 
@@ -15,18 +16,23 @@ import { Badge, EmptyState, ErrorState, SkeletonRows, Tabs } from '../components
  *
  * Namerno nema klijentskog filtriranja: server već zna šta je vidljivo
  * (samo objavljeni članci, samo aktivni deal-ovi, bez soft-deleted tema).
+ *
+ * 2.6.6 (F-13) — tab „Odgovori“ traži u tekstu odgovora (`type=replies`) i
+ * vodi na duboki link `#post-<id>`; u „Sve“ nisu da ne bi istisnuli teme.
  */
 
 const TYPE_LABEL: Record<string, string> = {
   all: 'Sve',
   articles: 'Članci',
   threads: 'Forum',
+  replies: 'Odgovori',
   deals: 'Popusti',
 };
 
 const HIT_META: Record<SearchHit['type'], { label: string; icon: typeof FileText }> = {
   article: { label: 'Članak', icon: FileText },
   thread: { label: 'Tema', icon: MessageSquare },
+  reply: { label: 'Odgovor', icon: MessagesSquare },
   deal: { label: 'Deal', icon: Tag },
 } as const;
 
@@ -55,7 +61,7 @@ export default function SearchPage() {
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['search', query, type],
-    queryFn: () => api.search.all(query, type as 'all' | 'articles' | 'threads' | 'deals'),
+    queryFn: () => api.search.all(query, type as SearchScope),
     enabled: query.length >= 2,
     // Kucanje u navu menja query — kratko keširanje da Back ne pravi novi poziv.
     staleTime: 30_000,
@@ -63,7 +69,7 @@ export default function SearchPage() {
 
   const tabs = useMemo(
     () =>
-      (['all', 'articles', 'threads', 'deals'] as const).map((key) => ({
+      (['all', 'articles', 'threads', 'replies', 'deals'] as const).map((key) => ({
         id: key,
         label: TYPE_LABEL[key],
         // U „all“ režimu server ne vraća broj po tipu — broj samo na aktivnom tabu.
@@ -107,7 +113,7 @@ export default function SearchPage() {
 
         <Tabs
           items={tabs}
-          value={type as 'all' | 'articles' | 'threads' | 'deals'}
+          value={type as SearchScope}
           ariaLabel="Vrsta sadržaja"
           onChange={(key) => {
             const term = query || draft.trim();
@@ -174,6 +180,7 @@ export default function SearchPage() {
                         <span className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] uppercase tracking-[0.06em] text-white/35">
                           {hit.meta && <span>{hit.meta}</span>}
                           {hit.type === 'thread' && hit.extra && <span>{hit.extra}</span>}
+                          {hit.type === 'reply' && hit.extra && <span>{hit.extra}</span>}
                           <span>{shortDate(hit.createdAt)}</span>
                         </span>
                       </span>

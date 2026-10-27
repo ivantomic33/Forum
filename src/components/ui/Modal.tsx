@@ -10,8 +10,8 @@ export interface ModalProps {
   description?: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
-  /** Å irina panela; podrazumevano `md`. */
-  size?: 'sm' | 'md' | 'lg';
+  /** Širina panela; podrazumevano `md`. `2xl` je za dug forms (profile settings). */
+  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
   className?: string;
 }
 
@@ -19,6 +19,8 @@ const SIZE: Record<NonNullable<ModalProps['size']>, string> = {
   sm: 'max-w-sm',
   md: 'max-w-lg',
   lg: 'max-w-2xl',
+  xl: 'max-w-4xl',
+  '2xl': 'max-w-6xl',
 };
 
 /**
@@ -39,10 +41,12 @@ export function Modal({ open, onClose, title, description, children, footer, siz
     const focusFirst = () => {
       const panel = panelRef.current;
       if (!panel) return;
-      const focusable = panel.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), [href], input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])',
-      );
-      (focusable[0] ?? panel).focus();
+      // Uvek prvo `<body>`, pa panel: ako je fokus već unutra (korisnik je kliknuo
+      // polje odmah po otvaranju), ne prekidaj kucanje; i ako focus render ne
+      // dođe (`TTI` zakasni), panel sigurno nije `body` pa fokus ipak uđe u modal.
+      const active = document.activeElement;
+      if (active instanceof Node && panel.contains(active) && active !== panel) return;
+      panel.focus({ preventScroll: true });
     };
     const frame = window.requestAnimationFrame(focusFirst);
 
@@ -79,7 +83,11 @@ export function Modal({ open, onClose, title, description, children, footer, siz
       document.body.style.overflow = previousOverflow;
       previousFocus?.focus();
     };
-  }, [open, onClose]);
+    // `onClose` se NE stavlja u zavisnosti: `Modal` se koristi sa inline strelicama
+    // (`onClose={() => setX(false)}`), pa bi se efekat pokretao pri svakom renderu
+    // roditelja — vraćao fokus na trigger i vadio ga iz polja posle prvog slova.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   if (!open) return null;
 
@@ -94,23 +102,27 @@ export function Modal({ open, onClose, title, description, children, footer, siz
         tabIndex={-1}
         className={cn('ui-modal-panel', SIZE[size], className)}
       >
-        <div className="flex items-start justify-between gap-4 border-b border-white/[0.07] pb-4">
-          <div className="min-w-0">
-            <h2 id={titleId} className="font-display text-lg font-semibold tracking-tight text-white">
-              {title}
-            </h2>
-            {description && (
-              <p id={descriptionId} className="mt-1 text-sm leading-relaxed text-white/55">
-                {description}
-              </p>
-            )}
+        <div className="flex max-h-[90vh] flex-col">
+          <div className="flex shrink-0 items-start justify-between gap-4 border-b border-[var(--color-border-subtle)] pb-4">
+            <div className="min-w-0">
+              <h2 id={titleId} className="text-h3 text-[var(--color-text-primary)]">
+                {title}
+              </h2>
+              {description && (
+                <p id={descriptionId} className="mt-1 text-meta text-[var(--color-text-secondary)]">
+                  {description}
+                </p>
+              )}
+            </div>
+            <button type="button" onClick={onClose} aria-label="Zatvori dijalog" className="ui-icon-btn shrink-0">
+              <X size={18} />
+            </button>
           </div>
-          <button type="button" onClick={onClose} aria-label="Zatvori dijalog" className="ui-icon-btn shrink-0">
-            <X size={18} />
-          </button>
+          <div className="overflow-y-auto py-4">{children}</div>
+          {footer && (
+            <div className="flex shrink-0 justify-end gap-3 border-t border-[var(--color-border-subtle)] pt-4">{footer}</div>
+          )}
         </div>
-        <div className="py-4">{children}</div>
-        {footer && <div className="flex justify-end gap-3 border-t border-white/[0.07] pt-4">{footer}</div>}
       </div>
     </div>,
     document.body,

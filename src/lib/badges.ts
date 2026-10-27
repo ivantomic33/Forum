@@ -1,5 +1,5 @@
 ﻿/**
- * KATALOG BEDÅ½EVA — jedini izvor istine na frontendu.
+ * KATALOG BEDŽEVA — jedini izvor istine na frontendu.
  *
  * Kodovi moraju da se poklapaju sa `server/schema-2.5.1.sql` (tabela `badges`)
  * i sa `evaluateBadges()` u `server/lib/gamification.ts`. Ranije su frontend
@@ -104,6 +104,80 @@ export const BADGES: BadgeDefinition[] = [
     icon: 'flame',
     rarity: 'legendary',
     how: 'Dodeljuje administracija za vanredan doprinos.',
+  },
+  {
+    id: 'article_commenter',
+    name: 'Čitač sa mišljenjem',
+    desc: 'Komentarišite 5 članaka',
+    icon: 'message-square',
+    rarity: 'rare',
+    how: 'Napišite pet komentara na člancima portala.',
+  },
+  {
+    id: 'streak_keeper',
+    name: 'Čuvar niza',
+    desc: '7 dana prijave zaredom',
+    icon: 'flame',
+    rarity: 'rare',
+    how: 'Prijavite se svaki dan sedam dana zaredom.',
+  },
+  {
+    id: 'level_10',
+    name: 'Veteran nivoa',
+    desc: 'Dostignite nivo 10',
+    icon: 'medal',
+    rarity: 'epic',
+    how: 'Razvijajte nalog kroz aktivnost dok ne dostignete nivo 10.',
+  },
+  // 3.0.0 — sistemski bedževi (dodeljuje administracija). Bez ovih definicija
+  // `BadgeChip` vraća `null`, pa korisnik sa dodeljenim bedžom nije video ništa.
+  {
+    id: 'beta-tester',
+    name: 'Beta tester',
+    desc: 'Rano testiranje platforme',
+    icon: 'sparkles',
+    rarity: 'uncommon',
+    how: 'Dodeljuje administracija učesnicima zatvorene bete.',
+  },
+  {
+    id: 'tournament-winner',
+    name: 'Šampion turnira',
+    desc: 'Pobeda na NEXUS turniru',
+    icon: 'crown',
+    rarity: 'legendary',
+    how: 'Dodeljuje administracija pobedniku turnira.',
+  },
+  {
+    id: 'vip-supporter',
+    name: 'VIP pretplatnik',
+    desc: 'Podrška zajednici',
+    icon: 'hand-heart',
+    rarity: 'rare',
+    how: 'Dodeljuje administracija donatorima i pretplatnicima.',
+  },
+  {
+    id: 'content-creator',
+    name: 'Kreator sadržaja',
+    desc: 'Gaming sadržaj u ime portala',
+    icon: 'star',
+    rarity: 'epic',
+    how: 'Dodeljuje administracija kreatorima koji sarađuju sa portalom.',
+  },
+  {
+    id: 'community-mvp',
+    name: 'MVP zajednice',
+    desc: 'Poseban doprinos zajednici',
+    icon: 'target',
+    rarity: 'epic',
+    how: 'Dodeljuje administracija za izuzetan doprinos zajednici.',
+  },
+  {
+    id: 'hardware-guru',
+    name: 'Hardver guru',
+    desc: 'Stručnost u hardveru i build-ovima',
+    icon: 'users',
+    rarity: 'rare',
+    how: 'Dodeljuje administracija autorima pouzdanih build-ova i saveta.',
   },
 ];
 

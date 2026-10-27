@@ -1,0 +1,97 @@
+name: News ingest (RSS → NEXUS)
+
+# 2.13.6 — AUTOMATSKI UVOZ VESTI
+# ------------------------------
+# Do sada su vesti ulazile samo kad neko ručno pokrene `npm run ingest:news`.
+# Ovaj workflow to radi sam, svakih 30 minuta, dok je PC ugašen i bez ikakvog
+# servera u pozadini — GitHub Actions je besplatan za javne repozitorijume.
+#
+# Zašto ne `cron` na Windows-u (schtasks): radi samo dok je računar uključen i
+# ne vidi se u istoriji pokretanja. Ovde se svaki prolaz vidi u Actions tab-u.
+#
+# Podešavanje (jednom, u GitHub → Settings → Secrets and variables → Actions):
+#   API_URL                   https://<tvoj-api-domen>          (bez završne kose crte)
+#   ARTICLES_INGEST_API_KEY   isti ključ kao u server/.env
+#   RSS_FEED_URL              (opciono) ako nije n8n webhook iz koda
+#   GEMINI_API_KEY            (opciono) za AI prevod i klasifikaciju
+#
+# Ručno pokretanje: Actions → „News ingest“ → Run workflow.
+
+on:
+  schedule:
+    # Svakih 30 minuta. GitHub može da zakasni pokretanje do ~10 min u periodima
+    # opterećenja; skripta je inkrementalna, pa kašnjenje ne pravi duplikate.
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: 'Maksimalan broj stavki iz feeda'
+        required: false
+        default: '30'
+      full:
+        description: 'Ignoriši inkrementalno stanje (--full)'
+        required: false
+        type: boolean
+        default: false
+      dry_run:
+        description: 'Samo prikaži šta bi uradio (--dry-run)'
+        required: false
+        type: boolean
+        default: false
+
+# Dva pokretanja ne smeju paralelno — oba bi skidala isti feed i trošila AI kvotu.
+concurrency:
+  group: news-ingest
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Skripte su čist ESM bez zavisnosti (nema `npm ci` — brže, manje šanse za pad).
+      - name: Ingest news
+        env:
+          API_URL: ${{ secrets.API_URL }}
+          ARTICLES_INGEST_API_KEY: ${{ secrets.ARTICLES_INGEST_API_KEY }}
+          RSS_FEED_URL: ${{ secrets.RSS_FEED_URL }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          # Autor uvezenih vesti. Bez njega server traži admina u bazi;
+          # ako ga ne nađe, sve vesti padaju sa 400.
+          ARTICLES_INGEST_AUTHOR: ${{ secrets.ARTICLES_INGEST_AUTHOR }}
+        run: |
+          ARGS="--limit=${{ github.event.inputs.limit || '30' }}"
+          if [ "${{ github.event.inputs.full }}" = "true" ]; then ARGS="$ARGS --full"; fi
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
+          node scripts/ingest-rss.mjs $ARGS
+
+      # Rezime se vidi u Actions tab-u bez otvaranja loga cele skripte.
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Uvoz vesti"
+            echo ""
+            echo "Vreme: $(date -u '+%d.%m.%Y %H:%M UTC')"
+            echo ""
+            echo '```'
+            echo "Status: ${{ job.status }}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Neuspeh je važan signal: pokvarena veza ka API-ju ili ključ ne treba da
+      # prođe tiho (portal bi izgledao „mrtav“ bez ijedne nove vesti).
+      - name: Fail on error
+        if: failure()
+        run: |
+          echo "::error::Uvoz vesti nije uspeo — proveri API_URL, ključ i dostupnost API-ja."
+          exit 1

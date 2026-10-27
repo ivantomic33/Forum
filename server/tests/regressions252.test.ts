@@ -156,3 +156,62 @@ describe.skipIf(db.kind !== 'memory')('F-08 / F-12 — komentari i reakcije u st
     expect(reactions.gg).toBe(1);
   });
 });
+
+/**
+ * N-04 — keš verzije sesije/ban-a.
+ * Cilj: „odjavi se svuda“ i ban ne smeju da važe tek posle isteka access tokena
+ * (15 min). Token NOSI `tv`; server ga poredi sa bazom, a keš (30 s) skraćuje
+ * ponovne provere. Keš se briše odmah kada server sam menja stanje.
+ */
+describe.skipIf(db.kind !== 'memory')('N-04 — tv u access tokenu + keširana provera', () => {
+  it('access token nosi tv iz baze', async () => {
+    const user = (await db.users.findById(USER))!;
+    const { generateToken } = await import('../middleware/auth.js');
+    const token = generateToken(user, '15m');
+    const payload = jwt.verify(token, process.env.JWT_SECRET as string) as { tv?: number; id?: string };
+    expect(payload.id).toBe(USER);
+    expect(payload.tv).toBe(user.tokenVersion ?? 0);
+  });
+
+  it('bump tv odmah odbija stari token (bez čekanja da istekne)', async () => {
+    const { authenticate, generateToken, invalidateSessionCache } = await import('../middleware/auth.js');
+    const user = (await db.users.findById(USER))!;
+    const token = generateToken(user, '15m');
+
+    // Prvi zahtev puni keš sa trenutnim tv.
+    const call = async () => {
+      let status = 200;
+      const req: any = { headers: {}, cookies: { nx_at: token }, log: undefined };
+      const res: any = {
+        setHeader: () => res,
+        status: (code: number) => {
+          status = code;
+          return res;
+        },
+        json: () => res,
+      };
+      await authenticate(req, res, () => {});
+      return status;
+    };
+
+    expect(await call()).toBe(200);
+
+    // „Odjavi se svuda“: bump + invalidacija keša (radi i admin ruta).
+    await db.users.bumpSessionVersion(USER);
+    invalidateSessionCache(USER);
+
+    // Isti token (tv iz starog bump-a) mora pasti odmah — ne za 15 min.
+    expect(await call()).toBe(401);
+
+    // Novi token iz trenutnog stanja ponovo prolazi.
+    const fresh = (await db.users.findById(USER))!;
+    const freshToken = generateToken(fresh, '15m');
+    const req: any = { headers: {}, cookies: { nx_at: freshToken }, log: undefined };
+    let ok = false;
+    const res: any = { setHeader: () => res, status: () => ({ json: () => ({}) }), json: () => ({}) };
+    await authenticate(req, res, () => {
+      ok = true;
+    });
+    expect(ok).toBe(true);
+  });
+});

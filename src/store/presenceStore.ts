@@ -1,127 +1,44 @@
 /**
- * „ONLINE SADA“ — klijentsko stanje prisustva (2.6.1)
- * ---------------------------------------------------
- * Jedan Realtime kanal za ceo sajt (`subscribeRealtime`) puni mapu `online`.
- * Server je izvor istine:
- *  - `POST /api/auth/heartbeat` svakih 25s dok je tab vidljiv + pri povratku u tab,
- *  - Realtime `presence` događaji kao trenutni signal,
- *  - `GET /api/presence` svakih 60s kao rezerva (WS blokiran na proxy-ju) i kao
- *    početno stanje pre prvog događaja.
+ * „ONLINE SADA“ — prisustvo: mreža, Realtime i otkucaji (2.6.1 / 2.6.2 / N-06)
+ * --------------------------------------------------------------------------
+ * Samo Zustand store živi u `./presence` (mali modul koji uvozi glavni chunk
+ * preko `OnlineAvatar`-a). Ovaj modul dodaje mrežni deo: jedan Realtime kanal
+ * za ceo sajt (`subscribeRealtime`) i heartbeat.
  *
- * `lastSeen` se pamti po korisniku da stariji događaj (retry/out-of-order) ne
- * vrati već istekao status.
+ * Server je izvor istine:
+ *  - `POST /api/auth/heartbeat` svakih 25s dok je tab vidljiv + pri povratku u tab
+ *    (SAMO prijavljenom korisniku — gost ne pravi nijedan zahtev za prisustvo),
+ *  - Realtime `presence` događaji kao trenutni signal,
+ *  - `GET /api/presence` kao rezerva — N-02: samo dok kanal nije `SUBSCRIBED`
+ *    (WS blokiran na proxy-ju) i kao početno stanje pre prvog događaja.
  *
  * 2.6.2 — `away`: korisnik je prijavljen, ali bez aktivnosti (tab u pozadini).
  * Server objavljuje `away` eksplicitno (heartbeat `status: 'away'` ili sweep
  * posle 90s), a klijent prikazuje žuti prsten umesto zelenog.
  */
-import { create } from 'zustand';
-import type { RealtimeChannel } from '@supabase/supabase-js';
 import type { QueryClient } from '@tanstack/react-query';
-import { api } from '../lib/api';
-import { subscribeRealtime, type NotificationPush, type PresenceEvent, type PresenceStatus } from '../lib/realtime';
+import { api, hasSessionHint } from '../lib/api';
+import {
+  subscribeRealtime,
+  type NotificationPush,
+  type PresenceEvent,
+  type PresenceStatus,
+} from '../lib/realtime';
 import { useAuthStore } from './authStore';
+import { usePresenceStore } from './presence';
+import { notifyUser } from '../lib/notificationToasts';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 
-/** Koliko događaj koji nismo videli smatramo svežim pre nego što ga odbacimo. */
-const STALE_EVENT_MS = 60_000;
-/** Koliko `away` važi pre nego što se smatra offline (server: away prozor 120s). */
-const AWAY_TTL_MS = 120_000;
+let channel: RealtimeChannel | null = null;
+
+/** Re-export — postojeći pozivaoci (`OnlineAvatar`) tražili su store iz ovog modula. */
+export { usePresenceStore } from './presence';
+
 const HEARTBEAT_MS = 25_000;
 const SNAPSHOT_MS = 60_000;
 
-interface PresenceState {
-  /** userId → ISO vreme poslednjeg poznatog otkucaja. */
-  lastSeen: Record<string, string>;
-  /** userId → `away` (2.6.2). Bez vrednosti = `online` dok je `lastSeen` svež. */
-  away: Record<string, true>;
-  online: (userId?: string | null) => boolean;
-  /** `online | away | offline` — koristi ga `OnlineAvatar` (žuti prsten za away). */
-  status: (userId?: string | null) => PresenceStatus;
-  /** Realtime događaj (broadcast) ili snimak sa servera. */
-  apply: (userId: string, isOnline: boolean, at?: string | null, status?: PresenceStatus) => void;
-  applyMany: (userIds: string[], statuses?: Record<string, PresenceStatus>) => void;
-  reset: () => void;
-}
-
-function isFresh(at: string | null | undefined, previous: string | undefined) {
-  if (!at) return true;
-  if (previous && new Date(at).getTime() < new Date(previous).getTime()) return false;
-  return Date.now() - new Date(at).getTime() < STALE_EVENT_MS;
-}
-
-export const usePresenceStore = create<PresenceState>((set, get) => ({
-  lastSeen: {},
-  away: {},
-
-  online: (userId) => {
-    if (!userId) return false;
-    return get().status(userId) === 'online';
-  },
-
-  status: (userId) => {
-    if (!userId) return 'offline';
-    const at = get().lastSeen[userId];
-    if (!at) return 'offline';
-    const idle = Date.now() - new Date(at).getTime();
-    if (idle >= AWAY_TTL_MS) return 'offline';
-    return get().away[userId] ? 'away' : 'online';
-  },
-
-  apply: (userId, isOnline, at, status) => {
-    if (!userId) return;
-    const previous = get().lastSeen[userId];
-    const stamp = at ?? new Date().toISOString();
-    if (!isFresh(stamp, previous)) return;
-
-    // Stariji serveri šalju samo `online` boolean — tada je false = offline.
-    const next: PresenceStatus = !isOnline ? 'offline' : status === 'away' ? 'away' : 'online';
-
-    set((state) => {
-      const lastSeen = { ...state.lastSeen };
-      const away = { ...state.away };
-      if (next === 'offline') {
-        delete lastSeen[userId];
-        delete away[userId];
-      } else {
-        lastSeen[userId] = stamp;
-        if (next === 'away') away[userId] = true;
-        else delete away[userId];
-      }
-      return { lastSeen, away };
-    });
-  },
-
-  /** Snimak sa servera: svi iz liste su prisutni „sada“; `statuses` nosi away. */
-  applyMany: (userIds, statuses) => {
-    if (!userIds.length && !statuses) return;
-    const at = new Date().toISOString();
-    set((state) => {
-      const lastSeen = { ...state.lastSeen };
-      const away = { ...state.away };
-      for (const id of userIds) {
-        lastSeen[id] = at;
-        delete away[id];
-      }
-      for (const [id, status] of Object.entries(statuses ?? {})) {
-        if (status === 'offline') {
-          delete lastSeen[id];
-          delete away[id];
-        } else if (status === 'away') {
-          lastSeen[id] = at;
-          away[id] = true;
-        } else {
-          lastSeen[id] = at;
-          delete away[id];
-        }
-      }
-      return { lastSeen, away };
-    });
-  },
-
-  reset: () => set({ lastSeen: {}, away: {} }),
-}));
-
-let channel: RealtimeChannel | null = null;
+/** N-02 — `true` samo kada je Realtime kanal stvarno `SUBSCRIBED`. */
+let realtimeLive = false;
 let started = false;
 /** React Query klijent (bootstrap iz `main.tsx`) — zvonce se osveži bez polling-a. */
 let queryClient: QueryClient | null = null;
@@ -141,6 +58,11 @@ async function sendHeartbeat(status: 'online' | 'away' = 'online') {
 
   heartbeatInFlight = true;
   try {
+    // N-01 — sesija je u ovom trenutku pala: ne šalji otkucaje do prijave.
+    if (!hasSessionHint()) {
+      syncHeartbeatTimer();
+      return;
+    }
     await api.auth.heartbeat(status);
     usePresenceStore.getState().apply(user.id, true, undefined, status);
   } catch {
@@ -160,6 +82,33 @@ async function refreshSnapshot() {
 }
 
 /**
+ * N-02 — polling je samo fallback. Kada Realtime kanal radi, `GET /presence`
+ * je dupliran saobraćaj (svakih 60s) za podatke koji već stižu kroz kanal.
+ */
+function syncSnapshotTimer() {
+  const needsFallback = !realtimeLive;
+  if (needsFallback && !snapshotTimer) {
+    void refreshSnapshot();
+    snapshotTimer = setInterval(() => void refreshSnapshot(), SNAPSHOT_MS);
+  } else if (!needsFallback && snapshotTimer) {
+    clearInterval(snapshotTimer);
+    snapshotTimer = null;
+  }
+}
+
+/** N-01 — heartbeat samo prijavljenom korisniku (gost bi dobio 401 svakih 25s). */
+function syncHeartbeatTimer() {
+  const authenticated = useAuthStore.getState().isAuthenticated;
+  if (authenticated && !heartbeatTimer) {
+    void sendHeartbeat();
+    heartbeatTimer = setInterval(() => void sendHeartbeat(), HEARTBEAT_MS);
+  } else if (!authenticated && heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+}
+
+/**
  * Pokreće praćenje prisustva. Idempotentno — Layout je zove jednom.
  * `client` omogućava trenutno osvežavanje zvona na Realtime notifikaciju.
  */
@@ -168,7 +117,15 @@ export function startPresence(client?: QueryClient) {
   if (started) return stopPresence;
   started = true;
 
+  // Bez Realtime konfiguracije `subscribeRealtime` vraća `null` — fallback ostaje aktivan.
+  realtimeLive = false;
   channel = subscribeRealtime({
+    onStatus: (status) => {
+      // `SUBSCRIBED` = kanal radi → ugasi 60s polling; `CHANNEL_ERROR`/`TIMED_OUT`/`CLOSED`
+      // → vrati REST fallback dok se lib ne rekonektuje.
+      realtimeLive = status === 'SUBSCRIBED';
+      if (started) syncSnapshotTimer();
+    },
     onPresence: (event: PresenceEvent) => {
       usePresenceStore.getState().apply(event.userId, event.online, event.at, event.status);
     },
@@ -177,14 +134,15 @@ export function startPresence(client?: QueryClient) {
       // čekanja 30s polling intervala. Lista se i dalje vuče preko REST rute.
       if (push.userId !== useAuthStore.getState().user?.id) return;
       void queryClient?.invalidateQueries({ queryKey: ['notifications'] });
+      // 6.x — „probudno“ obaveštenje u momentu (ranije se samo osvežavalo zvonce).
+      notifyUser(push.notification);
     },
   });
 
-  void refreshSnapshot();
-  void sendHeartbeat();
-
-  heartbeatTimer = setInterval(() => void sendHeartbeat(), HEARTBEAT_MS);
-  snapshotTimer = setInterval(() => void refreshSnapshot(), SNAPSHOT_MS);
+  // Početno stanje: bez Realtime-a odmah; sa Realtime-om samo dok ne stigne
+  // `SUBSCRIBED` (kratak prozor), pa polovanje gasi `onStatus`.
+  syncSnapshotTimer();
+  syncHeartbeatTimer();
 
   // Povratak u tab = trenutni otkucaj (bez čekanja punih 25s).
   document.addEventListener('visibilitychange', onVisibility);
@@ -196,7 +154,7 @@ export function startPresence(client?: QueryClient) {
 function onVisibility() {
   if (document.visibilityState === 'visible') {
     void sendHeartbeat();
-    void refreshSnapshot();
+    if (!realtimeLive) void refreshSnapshot();
   } else {
     // 2.6.2 — tab u pozadini = „away“ odmah (bez čekanja 90s TTL-a).
     void sendHeartbeat('away');
@@ -205,11 +163,12 @@ function onVisibility() {
 
 function onNetworkOnline() {
   void sendHeartbeat();
-  void refreshSnapshot();
+  if (!realtimeLive) void refreshSnapshot();
 }
 
 export function stopPresence() {
   started = false;
+  realtimeLive = false;
   if (heartbeatTimer) clearInterval(heartbeatTimer);
   if (snapshotTimer) clearInterval(snapshotTimer);
   heartbeatTimer = null;
@@ -219,4 +178,14 @@ export function stopPresence() {
   channel?.unsubscribe();
   channel = null;
   usePresenceStore.getState().reset();
+}
+
+/**
+ * N-01 — Layout zove ovo kada se promeni stanje prijave: gost ne šalje
+ * heartbeat, a prijavljeni korisnik ga odmah dobija (bez čekanja 25s).
+ */
+export function syncPresenceWithAuth() {
+  if (!started) return;
+  syncHeartbeatTimer();
+  if (!useAuthStore.getState().isAuthenticated) usePresenceStore.getState().reset();
 }

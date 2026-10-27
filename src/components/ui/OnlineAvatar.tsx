@@ -1,5 +1,6 @@
 import { cn } from './cn';
-import { usePresenceStore } from '../../store/presenceStore';
+// N-06 — store bez mreže: glavni chunk ne vuče Realtime/React Query.
+import { usePresenceStore } from '../../store/presence';
 import type { PresenceStatus } from '../../lib/realtime';
 
 /**

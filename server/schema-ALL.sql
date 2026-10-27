@@ -9,7 +9,7 @@
 --   core → 2.4.1 → 2.4.3 → 2.4.4 → 2.5.1 → 2.5.2 → 2.5.3 → 2.5.4
 --   → polls → 2.6.0-deals → 2.6.1-presence → 2.6.2-presence-away
 --   → 2.6.2-storage → 2.6.2-search-lexicon → 2.6.2-search
---   → 2.6.2-search-lang (no-op)
+--   → 2.6.2-search-lang (no-op) → 2.6.4-sharing → 2.6.5-rpc-fixes
 --
 -- VAŽNO za pretragu: leksikalni sloj (fold_srpski/stem_srpski/search_doc)
 -- mora biti PRE `search_articles/-threads/-deals`, jer Postgres za SQL
@@ -98,6 +98,21 @@ CREATE TABLE IF NOT EXISTS user_badges (
 CREATE INDEX IF NOT EXISTS idx_user_badges_user ON user_badges(user_id);
 
 -- ============================
+-- PROFILE GUESTBOOK (GG komentari na profilu, #5)
+-- ============================
+CREATE TABLE IF NOT EXISTS profile_guestbook (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  profile_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  author_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  message VARCHAR(200) NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(profile_user_id, author_user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_profile_guestbook_profile
+  ON profile_guestbook (profile_user_id, created_at DESC);
+
+-- ============================
 -- QUESTS TABLE
 -- ============================
 CREATE TABLE IF NOT EXISTS quests (
@@ -136,7 +151,8 @@ CREATE TABLE IF NOT EXISTS articles (
   author_id UUID REFERENCES users(id) ON DELETE SET NULL,
   category VARCHAR(50) NOT NULL,
   tags TEXT[],
-  status VARCHAR(20) DEFAULT 'draft' CHECK (status IN ('draft', 'published', 'archived')),
+  -- 2.10.0 — 'scheduled' status: `published_at` drži ZAKAZANI trenutak objave.
+  status VARCHAR(20) DEFAULT 'draft' CHECK (status IN ('draft', 'published', 'scheduled', 'archived')),
   is_featured BOOLEAN DEFAULT false,
   views INTEGER DEFAULT 0,
   published_at TIMESTAMP,
@@ -151,6 +167,10 @@ CREATE INDEX IF NOT EXISTS idx_articles_status ON articles(status);
 CREATE INDEX IF NOT EXISTS idx_articles_featured ON articles(is_featured);
 CREATE INDEX IF NOT EXISTS idx_articles_published ON articles(published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_articles_views ON articles(views DESC);
+-- 2.10.0 — periodično pretraživanje dospelih zakazanih članaka (delimični indeks).
+CREATE INDEX IF NOT EXISTS idx_articles_scheduled
+  ON articles (status, published_at)
+  WHERE status = 'scheduled';
 
 -- ============================
 -- ARTICLE REACTIONS TABLE
@@ -249,6 +269,13 @@ CREATE INDEX IF NOT EXISTS idx_forum_threads_author ON forum_threads(author_id);
 CREATE INDEX IF NOT EXISTS idx_forum_threads_karma ON forum_threads(karma DESC);
 CREATE INDEX IF NOT EXISTS idx_forum_threads_created ON forum_threads(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_forum_threads_last_reply ON forum_threads(last_reply_at DESC);
+
+-- 2.6.6 (F-3) — tema otvorena iz deal-a („Diskutuj o ovom popustu“).
+-- NAMERNO bez `REFERENCES deals(id)`: `deals` se pravi kasnije u ovom skriptu
+-- (sekcija 2.6.0), a `schema-ALL.sql` se pušta kao jedna transakcija. FK se
+-- dodaje u `sql/20-2.6.6-deal-topic.sql`, posle `10-2.6.0-deals.sql`.
+ALTER TABLE forum_threads ADD COLUMN IF NOT EXISTS deal_id UUID;
+CREATE INDEX IF NOT EXISTS idx_forum_threads_deal ON forum_threads(deal_id);
 
 -- ============================
 -- FORUM REPLIES TABLE
@@ -951,7 +978,19 @@ INSERT INTO badges (code, name, description, tier, xp_reward) VALUES
   ('influencer',  'Influenser',   'Povežite 4 gaming naloga',              'platinum', 300),
   ('veteran',     'Veteran',      'Dostignite 5.000 XP',                   'gold',    500),
   ('founder',     'Osnivac',      'Među prvim članovima zajednice',        'legendary', 0),
-  ('legend',      'Legenda',      'Posebno dodeljeno dostignuće',          'legendary', 0)
+  ('legend',      'Legenda',      'Posebno dodeljeno dostignuće',          'legendary', 0),
+  ('article_commenter', 'Citac sa misljenjem', 'Komentarite 5 članaka',      'gold',    100),
+  ('streak_keeper',     'Cuvar niza',          '7 dana prijave zaredom',      'silver',   75),
+  ('level_10',          'Veteran nivoa',       'Dostignite nivo 10',          'platinum', 250),
+  -- 3.0.0 — SISTEMSKI bedževi (dodeljuje admin). Bez reda u `badges`
+  -- `addBadge()` odbija upis (`badge_code_missing_in_badges_table`), pa se
+  -- admin nagrada iz modala „Nagradi“ nikad nije prikazala na profilu.
+  ('beta-tester',       'Beta tester',         'Rano testiranje platforme',   'gold',       0),
+  ('tournament-winner', 'Sampion turnira',     'Pobeda na NEXUS turniru',     'platinum',   0),
+  ('vip-supporter',     'VIP pretplatnik',     'Podrska zajednici',           'gold',       0),
+  ('content-creator',   'Kreator sadrzaja',    'Gaming sadrzaj u ime portala','platinum',   0),
+  ('community-mvp',     'MVP zajednice',       'Poseban doprinos zajednici',  'platinum',   0),
+  ('hardware-guru',     'Hardver guru',        'Strucnost u hardveru',        'gold',       0)
 ON CONFLICT (code) DO UPDATE
   SET name = EXCLUDED.name,
       description = EXCLUDED.description,
@@ -1210,7 +1249,12 @@ CREATE INDEX IF NOT EXISTS idx_forum_threads_created
   WHERE is_deleted = false;
 
 CREATE INDEX IF NOT EXISTS idx_users_leaderboard_karma
-  ON users (karma DESC, level DESC, xp DESC);
+  ON users (karma DESC, level DESC, xp DESC) WHERE is_banned IS NOT TRUE;
+-- N-07 — `ORDER BY level DESC, xp DESC, karma DESC` iz `db.users.leaderboard`
+-- (jedini neuslovni red u toj ruti). Isti naziv kao u 2.5.1 → već kreiran indeks
+-- (level, xp) se preskače, pa ovde ostaje samo onaj sa trećim ključem.
+CREATE INDEX IF NOT EXISTS idx_users_leaderboard_level
+  ON users (level DESC, xp DESC, karma DESC) WHERE is_banned IS NOT TRUE;
 
 CREATE INDEX IF NOT EXISTS idx_articles_created
   ON articles (created_at DESC, id);
@@ -1262,6 +1306,12 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_locked_until TIMESTAMPTZ;
 
 -- Jedan TOTP kod ne može da se iskoristi dvaput: `last_used_step` sprečava replay.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_last_used_step BIGINT;
+
+-- ---------- 6.x: REPUTACIJA ZA ODGOVORE ----------
+-- Koliko puta je autor teme prihvatio tvoj odgovor kao rešenje. Odvojeno od
+-- `karma` (glasovi) — reputacija se ne može napumpati lajkovima. Odznačavanjem
+-- prihvaćenog odgovora brojač se NE smanjuje (istorija pomoći ostaje).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS solved_answers INTEGER NOT NULL DEFAULT 0;
 
 -- ---------- F-34: OAUTH IDENTITETI ----------
 -- Jedan provajderski identitet = jedan NEXUS nalog (UNIQUE provider+provider_user_id).
@@ -1575,11 +1625,8 @@ DROP INDEX IF EXISTS idx_user_presence_last_seen;
 CREATE INDEX IF NOT EXISTS idx_user_presence_last_seen
   ON user_presence(last_seen_at DESC);
 
-/**
- * `online | away | offline` za jedan red.
- * TTL = 90s (koliko otkucaj važi), away posle 120s bez otkucaja.
- * Namerno `>=` — vreme koje tačno dodiruje granicu još važi.
- */
+--
+ --
 CREATE OR REPLACE FUNCTION presence_status(last_seen_at TIMESTAMPTZ)
 RETURNS TEXT
 LANGUAGE sql
@@ -1593,16 +1640,8 @@ AS $$
   END;
 $$;
 
-/**
- * Trenutno prisutni korisnici: `online` + `away`, sa statusom i vremenom
- * poslednjeg otkucaja. Gornja granica `LIMIT 2000` — odbrana od zloupotrebe,
- * a i lista za navbar je ionako kratka. Umesto celog skena: indeks +
- * filter u SQL-u.
- *
- * `last_seen_at` se vraća namerno: serverski orkestrator status računa iz
- * njega (isti pragovi kao `presence_status`), pa JS i baza ne mogu da se
- * raziđu u prozoru away.
- */
+--
+ --
 CREATE OR REPLACE FUNCTION online_users()
 RETURNS TABLE (user_id UUID, status TEXT, last_seen_at TIMESTAMPTZ)
 LANGUAGE sql
@@ -1615,7 +1654,7 @@ AS $$
   LIMIT 2000;
 $$;
 
-/** Status samo za tražene korisnike — jedan upit za profil/rang-listu/forum. */
+-- Status samo za tražene korisnike — jedan upit za profil/rang-listu/forum.
 CREATE OR REPLACE FUNCTION presence_for_users(user_ids UUID[])
 RETURNS TABLE (user_id UUID, status TEXT, last_seen_at TIMESTAMPTZ)
 LANGUAGE sql
@@ -1859,6 +1898,10 @@ CREATE TABLE IF NOT EXISTS search_terms (
 CREATE OR REPLACE FUNCTION search_terms_refresh()
 RETURNS INT
 LANGUAGE plpgsql
+-- VOLATILE je podrazumevano i NAMERNO: funkcija piše (`TRUNCATE`/`INSERT`) i
+-- poziva se u SQL Editor-u kao `SELECT search_terms_refresh();`. Zato Supabase
+-- prikazuje rezultat `search_terms_refresh = <broj>` (broj upisanih reči) — to
+-- je očekivani izlaz poslednjeg `SELECT`-a u ovoj skripti, ne greška.
 AS $$
 DECLARE
   inserted INT;
@@ -1932,20 +1975,20 @@ SELECT search_terms_refresh();
 -- ======================================================================
 
 -- ============================================================================
--- NEXUS 2.6.2 â€” Pretraga: trigrami (greÅ¡ke u kucanju) + leksikalni sloj
+-- NEXUS 2.6.2 — Pretraga: trigrami (greške u kucanju) + leksikalni sloj
 -- ----------------------------------------------------------------------------
 -- Dva sloja se sabiraju u `rank`:
 --
---  1. `pg_trgm` + `ILIKE` â€” delimiÄne reÄi i greÅ¡ke u kucanju. Ovaj deo radi
---     Äim je ova migracija primenjena.
+--  1. `pg_trgm` + `ILIKE` — delimične reči i greške u kucanju. Ovaj deo radi
+--     čim je ova migracija primenjena.
 --  2. `tsquery` nad normalizovanim vektorom iz `schema-2.6.2-search-lang.sql`
---     (skida dijakritiku, Ä‡irilicu i padeÅ¾ne nastavke â†’ â€žigreâ€œ, â€žigramaâ€œ i
---     â€žigraâ€œ pogode isti koren). Ako ta migracija nije primenjena, klijent
---     poÅ¡alje `ts_query = ''` i ovaj deo se preskaÄe bez greÅ¡ke.
+--     (skida dijakritiku, ćirilicu i padežne nastavke → „igre“, „igrama“ i
+--     „igra“ pogode isti koren). Ako ta migracija nije primenjena, klijent
+--     pošalje `ts_query = ''` i ovaj deo se preskače bez greške.
 --
 -- Privatnost / vidljivost:
---  - Älanci: samo `status = 'published'`,
---  - teme: samo postojeÄ‡e (soft-deleted se ne vraÄ‡aju),
+--  - članci: samo `status = 'published'`,
+--  - teme: samo postojeće (soft-deleted se ne vraćaju),
 --  - deal-ovi: samo `status = 'active'` i bez isteklog roka.
 --
 -- Bez ove migracije server radi sa ILIKE fallbackom (isti ugovor, bez ranga
@@ -1955,7 +1998,7 @@ SELECT search_terms_refresh();
 CREATE EXTENSION IF NOT EXISTS "pg_trgm";
 
 -- RANA provera: `search_articles/-threads/-deals` pozivaju `public.search_doc()` u
--- svom telu, a Postgres za SQL funkcije traÅ¾i da pozvana funkcija **veÄ‡
+-- svom telu, a Postgres za SQL funkcije traži da pozvana funkcija **već
 -- postoji** u trenutku `CREATE FUNCTION`.
 DO $$
 BEGIN
@@ -1982,18 +2025,8 @@ CREATE INDEX IF NOT EXISTS idx_deals_title_trgm
 CREATE INDEX IF NOT EXISTS idx_games_title_trgm
   ON games USING gin (title gin_trgm_ops);
 
-/**
- * Tekstualni â€žsnippetâ€œ oko prve pogodjene reÄi, bez HTML-a.
- *
- * Postgres nema `searchhits()` (to je MySQL interni API â€” PostgreSQL baca
- * `42883: function searchhits(text, text) does not exist`). Ovde se koristi
- * `ts_headline('simple', â€¦)` sa praznim `StartSel`/`StopSel`, pa tela ne
- * dobijaju `<b>` markere.
- *
- * Bez upita (ili kada upit nema nijednu leksemu) vraÄ‡a se prvih 200 znakova:
- * `to_tsquery`/`ts_headline` sa praznim `tsquery` vraÄ‡aju prazan string, pa
- * se grana proverava ranije (`numnode` je 0 za prazan upit).
- */
+--
+ --
 CREATE OR REPLACE FUNCTION search_snippet(body TEXT, query TEXT)
 RETURNS TEXT
 LANGUAGE sql
@@ -2003,8 +2036,8 @@ AS $$
     SELECT coalesce(regexp_replace(coalesce(body, ''), '<[^>]+>', ' ', 'g'), '') AS plain
   ),
   q AS (
-    -- `plainto_tsquery` nikad ne baca na proizvoljan tekst (samo ignoriÅ¡e
-    -- reÄi bez leksema). `numnode` je 0 za prazan upit.
+    -- `plainto_tsquery` nikad ne baca na proizvoljan tekst (samo ignoriše
+    -- reči bez leksema). `numnode` je 0 za prazan upit.
     SELECT plainto_tsquery('simple', coalesce(query, '')) AS tsq, plain
     FROM src
   )
@@ -2021,10 +2054,8 @@ AS $$
   FROM q;
 $$;
 
-/**
- * ÄŒlanci. Rang: taÄan naslov > naslov (trigram) > excerpt > sadrÅ¾aj.
- * `title` i `excerpt` ne mogu biti NULL (schema), `content` moÅ¾e biti prazan.
- */
+--
+ --
 CREATE OR REPLACE FUNCTION search_articles(
   query TEXT,
   ts_query TEXT DEFAULT '',
@@ -2067,7 +2098,7 @@ AS $$
       + similarity(coalesce(a.excerpt, ''), q.term) * 2
       + CASE WHEN a.title ILIKE '%' || q.term || '%' THEN 2 ELSE 0 END
       + CASE WHEN coalesce(a.content, '') ILIKE '%' || q.term || '%' THEN 0.5 ELSE 0 END
-      -- Leksikalni sloj: normalizovan vektor + koren reÄi (npr. â€žigreâ€œ â†’ â€žigrâ€œ).
+      -- Leksikalni sloj: normalizovan vektor + koren reči (npr. „igre“ → „igr“).
       + CASE
           WHEN q.ts <> '' AND public.search_doc(coalesce(a.title, '') || ' ' || coalesce(a.excerpt, '') || ' ' || coalesce(a.content, '')) @@ to_tsquery(ts_config, q.ts) THEN 2.5
           ELSE 0
@@ -2087,10 +2118,8 @@ AS $$
   LIMIT LEAST(GREATEST(max_results, 1), 50);
 $$;
 
-/**
- * Teme foruma. Soft-deleted i obrisane se ne vraÄ‡aju; `subforum` je naziv
- * kategorije za prikaz (slug iz `forum_categories`).
- */
+--
+ --
 CREATE OR REPLACE FUNCTION search_threads(
   query TEXT,
   ts_query TEXT DEFAULT '',
@@ -2146,9 +2175,8 @@ AS $$
   LIMIT LEAST(GREATEST(max_results, 1), 50);
 $$;
 
-/**
- * Deal-ovi (samo aktivni i bez isteklog roka) + prodavnica i cena za karticu.
- */
+--
+ --
 CREATE OR REPLACE FUNCTION search_deals(
   query TEXT,
   ts_query TEXT DEFAULT '',
@@ -2201,7 +2229,7 @@ AS $$
   LIMIT LEAST(GREATEST(max_results, 1), 50);
 $$;
 
--- RLS/dozvole: pretraga je javna, ali kroz service_role (backend) â€” anon klijent
+-- RLS/dozvole: pretraga je javna, ali kroz service_role (backend) — anon klijent
 -- ne treba da poziva RPC direktno.
 REVOKE ALL ON FUNCTION search_articles(TEXT, TEXT, REGCONFIG, INT) FROM PUBLIC;
 REVOKE ALL ON FUNCTION search_threads(TEXT, TEXT, REGCONFIG, INT) FROM PUBLIC;
@@ -2243,5 +2271,1150 @@ END $$;
 -- Rečnik se puni iz istog fajla; ovde je samo osvežavanje za slučaj da je
 -- `lexicon` pušten pre nego što je baza imala članke/teme.
 SELECT search_terms_refresh();
+
+NOTIFY pgrst, 'reload schema';
+
+-- ======================================================================
+-- SEKCIJA: server/schema-2.6.4-sharing.sql
+-- ======================================================================
+-- ============================================================================
+-- NEXUS 2.6.4 — DELJENO STANJE IZMEĐU INSTANCI (N-09, B-15)
+--
+-- Do sada je troje stanja živelo u `Map`-u procesa. Sa 2+ API instance to je
+-- davalo pogrešne odgovore, ne samo sporije:
+--   * XP dnevni budžet  — limit od 300 XP se resetovao po instanci,
+--   * pending 2FA setup — tajna iz `/2fa/setup` nije postojala na drugoj instanci,
+--   * action tokeni     — fallback je ostajao u memoriji kada baza pukne,
+--   * prisustvo (B-15)  — `users.status` je memorijski keš i nije znak prisustva.
+--
+-- Atomično podeljen novac: brojač se NE čita pa upisuje iz aplikacije, već
+-- jedan `INSERT ... ON CONFLICT DO UPDATE` koji u istoj naredbi proverava limit
+-- (paralelni zahtevi se serijalizuju na redu; nema dvostrukog trošenja).
+-- Redosled: posle schema-2.6.2-search-lang.sql. Idempotentna je.
+-- ============================================================================
+
+-- ---------- 1. DNEVNI XP BUDŽET ----------
+-- `day` je UTC datum (isti kao `new Date().toISOString().slice(0, 10)` u kodu).
+-- TTL: stari redovi se brišu u `spend_daily_xp` (7 dana) — nema cron posla.
+CREATE TABLE IF NOT EXISTS xp_budget (
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  day DATE NOT NULL,
+  xp INTEGER NOT NULL DEFAULT 0 CHECK (xp >= 0),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (user_id, day)
+);
+CREATE INDEX IF NOT EXISTS idx_xp_budget_day ON xp_budget(day);
+
+--
+ --
+CREATE OR REPLACE FUNCTION spend_daily_xp(p_user_id UUID, p_amount INTEGER, p_cap INTEGER DEFAULT 300)
+RETURNS TABLE (granted INTEGER, used INTEGER, capped BOOLEAN)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_amount INTEGER := GREATEST(COALESCE(p_amount, 0), 0);
+  v_cap INTEGER := GREATEST(COALESCE(p_cap, 300), 0);
+  v_used INTEGER;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM users WHERE id = p_user_id) THEN
+    RETURN QUERY SELECT 0, 0, v_amount > 0;
+    RETURN;
+  END IF;
+
+  -- Proređeno čišćenje (1/50 poziva) — jeftino, bez cron posla.
+  IF random() < 0.02 THEN
+    DELETE FROM xp_budget WHERE day < (CURRENT_DATE - INTERVAL '7 days');
+  END IF;
+
+  INSERT INTO xp_budget AS b (user_id, day, xp, updated_at)
+  VALUES (p_user_id, CURRENT_DATE, LEAST(v_amount, v_cap), NOW())
+  ON CONFLICT (user_id, day) DO UPDATE
+    SET xp = b.xp + LEAST(v_amount, GREATEST(v_cap - b.xp, 0)),
+        updated_at = NOW()
+  RETURNING b.xp INTO v_used;
+
+  RETURN QUERY SELECT (v_used - GREATEST(v_used - v_amount, 0))::INTEGER, v_used, v_used < v_amount;
+END;
+$$;
+
+--* Admin/test reset — bez `p_user_id` briše se ceo dan svih korisnika. 
+CREATE OR REPLACE FUNCTION reset_daily_xp(p_user_id UUID DEFAULT NULL, p_day DATE DEFAULT CURRENT_DATE)
+RETURNS INTEGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_deleted INTEGER;
+BEGIN
+  IF p_user_id IS NULL THEN
+    DELETE FROM xp_budget WHERE day = p_day;
+  ELSE
+    DELETE FROM xp_budget WHERE user_id = p_user_id AND day = p_day;
+  END IF;
+  GET DIAGNOSTICS v_deleted = ROW_COUNT;
+  RETURN v_deleted;
+END;
+$$;
+
+ALTER TABLE xp_budget ENABLE ROW LEVEL SECURITY;
+
+-- ---------- 2. PENDING 2FA SETUP ----------
+-- Tajna tokom uključivanja (setup → enable). Samo hash (SHA-256) tajne, TTL 10 min.
+-- Potvrđena 2FA ostaje u `users.totp_secret` / `users.totp_enabled_at`.
+CREATE TABLE IF NOT EXISTS totp_pending (
+  user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  secret_hash TEXT NOT NULL,
+  secret_enc TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_totp_pending_created ON totp_pending(created_at);
+
+--* Nepotrošena provera: `secret_enc` (AES-GCM iz `lib/crypto`) ili NULL. 
+CREATE OR REPLACE FUNCTION peek_totp_enrollment(p_user_id UUID, p_ttl_seconds INTEGER DEFAULT 600)
+RETURNS TABLE (secret_enc TEXT)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  RETURN QUERY
+    SELECT t.secret_enc
+    FROM totp_pending t
+    WHERE t.user_id = p_user_id
+      AND t.created_at > NOW() - make_interval(secs => GREATEST(p_ttl_seconds, 0));
+
+  -- Istekli red je smeće, ne stanje. Briše se nad istim redom.
+  DELETE FROM totp_pending
+  WHERE user_id = p_user_id
+    AND created_at <= NOW() - make_interval(secs => GREATEST(p_ttl_seconds, 0));
+END;
+$$;
+
+--* Potvrđuje enrollment NE samo da ga pročita — drugi `enable` ne sme da prođe. 
+CREATE OR REPLACE FUNCTION consume_totp_enrollment(p_user_id UUID, p_ttl_seconds INTEGER DEFAULT 600)
+RETURNS TABLE (secret_enc TEXT)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  DELETE FROM totp_pending
+  WHERE user_id = p_user_id
+    AND created_at > NOW() - make_interval(secs => GREATEST(p_ttl_seconds, 0))
+  RETURNING totp_pending.secret_enc INTO secret_enc;
+
+  RETURN NEXT;
+END;
+$$;
+
+ALTER TABLE totp_pending ENABLE ROW LEVEL SECURITY;
+
+-- ---------- 3. AUDIT ACTION BEZ NOVIH KOLONA ----------
+-- `audit_log` (2.4.3) već ima `details JSONB` gde staje ceo zapis
+-- (`actorUsername`, `targetUsername`, `from`, `to`). Indeks samo za listu.
+CREATE INDEX IF NOT EXISTS idx_audit_log_action_created
+  ON audit_log(action, created_at DESC);
+
+-- ---------- 4. ASTEŽ IZ `auth_tokens` (N-09 — action tokeni) ----------
+-- `consume_auth_token` je već atomski. Ovo je samo osvežavanje schema keša
+-- posle ručnog unosa tokena u SQL Editor-u.
+NOTIFY pgrst, 'reload schema';
+
+-- ======================================================================
+-- SEKCIJA: server/schema-2.6.5-rpc-fixes.sql
+-- ======================================================================
+
+-- ============================================================================
+-- NEXUS 2.6.5 — RPC POPRAVKE POSLE RAZLIKE KOD ⇄ ŠEMA
+-- ----------------------------------------------------------------------------
+-- Provera je pokazala tri mesta gde kôd zove funkciju koja u bazi **postoji,
+-- ali pada** — dakle tiha greška u logu, a funkcija koju korisnik koristi
+-- polovično radi. Nijedna od njih nije nova funkcionalnost, samo slaganje
+-- šeme sa onim što `server/lib/store.ts` stvarno šalje.
+--
+--   1) `apply_article_reaction`  — upisuje u `articles.reactions`, kolonu koju
+--      nijedna migracija ne pravi → `42703 column "reactions" does not exist`.
+--   2) `cast_forum_vote`         — parametri su UUID, a aplikacija šalje `NULL`
+--      za neciljanu granu (`p_reply_id` / `p_thread_id`) → `42804`/`22P02`, pa
+--      glas padne na memorijski fallback.
+--   3) `cast_deal_vote`          — isti problem sa `p_vote_type` (ako stigne
+--      `NULL`, `NULLIF(lower(NULL), 'null')` je NULL, a provera tipa puca).
+--   4+5) `advance_quest` i `apply_article_reaction` — PostgREST mora da ih vidi.
+--
+-- Nakon puštanja ove sekcije evaluacija glasa/README komentari su tačni;
+-- idempotentna je (DROP + CREATE OR REPLACE).
+-- ============================================================================
+
+-- ---------- 1. `articles.reactions` — kolona za keš brojača ----------
+-- `apply_article_reaction` (2.5.2) i `SupabaseArticleRepo.addReaction` je
+-- čitaju kao `reactions`, a `CREATE TABLE articles` je nema. Bez nje svaka
+-- reakcija pada na sporiji fallback (read-modify-write), a RPC vraća 42703.
+ALTER TABLE articles
+  ADD COLUMN IF NOT EXISTS reactions JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+COMMENT ON COLUMN articles.reactions IS
+  'Keš brojača reakcija { like, gg, hype, fire, mind_blown }; izvor istine je article_reactions';
+
+-- ---------- 2. `cast_forum_vote` — NULL-safe potpis ----------
+-- Problem: `p_thread_id UUID` i `p_reply_id UUID` su strogi; PostgREST šalje
+-- JSON `null`, ali Postgres pri pozivu iz SQL-a ne može da odredi tip praznog
+-- parametra. Zato se parametri primaju kao TEXT i konvertuju u UUID unutar
+-- funkcije — `NULL` i `''` znače „nije taj cilj“, umesto greške.
+DROP FUNCTION IF EXISTS cast_forum_vote(UUID, UUID, UUID, TEXT);
+
+CREATE OR REPLACE FUNCTION cast_forum_vote(
+  p_user_id UUID,
+  p_thread_id TEXT,
+  p_reply_id TEXT,
+  p_vote_type TEXT
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_thread UUID := NULLIF(NULLIF(btrim(coalesce(p_thread_id, '')), ''), 'null')::UUID;
+  v_reply UUID := NULLIF(NULLIF(btrim(coalesce(p_reply_id, '')), ''), 'null')::UUID;
+  v_existing TEXT;
+  v_delta INT := 0;
+  v_karma INT;
+  v_new_vote TEXT := NULLIF(lower(p_vote_type), 'null');
+BEGIN
+  IF p_vote_type IS NOT NULL AND v_new_vote IS NOT NULL AND v_new_vote NOT IN ('up', 'down') THEN
+    RAISE EXCEPTION 'invalid vote type: %', p_vote_type;
+  END IF;
+
+  IF v_thread IS NOT NULL THEN
+    SELECT karma INTO v_karma FROM forum_threads WHERE id = v_thread FOR UPDATE;
+    IF NOT FOUND THEN
+      RETURN jsonb_build_object('changed', false, 'delta', 0, 'karma', 0);
+    END IF;
+
+    SELECT vote_type INTO v_existing
+    FROM forum_votes WHERE user_id = p_user_id AND thread_id = v_thread
+    FOR UPDATE;
+
+    IF v_existing IS NOT NULL THEN
+      v_delta := v_delta - CASE WHEN v_existing = 'up' THEN 1 ELSE -1 END;
+      DELETE FROM forum_votes WHERE user_id = p_user_id AND thread_id = v_thread;
+    END IF;
+
+    IF v_new_vote IS NOT NULL THEN
+      INSERT INTO forum_votes (user_id, thread_id, vote_type) VALUES (p_user_id, v_thread, v_new_vote);
+      v_delta := v_delta + CASE WHEN v_new_vote = 'up' THEN 1 ELSE -1 END;
+    END IF;
+
+    IF v_delta <> 0 THEN
+      UPDATE forum_threads SET karma = COALESCE(karma, 0) + v_delta WHERE id = v_thread RETURNING karma INTO v_karma;
+    END IF;
+  ELSIF v_reply IS NOT NULL THEN
+    SELECT karma INTO v_karma FROM forum_replies WHERE id = v_reply FOR UPDATE;
+    IF NOT FOUND THEN
+      RETURN jsonb_build_object('changed', false, 'delta', 0, 'karma', 0);
+    END IF;
+
+    SELECT vote_type INTO v_existing
+    FROM forum_votes WHERE user_id = p_user_id AND reply_id = v_reply
+    FOR UPDATE;
+
+    IF v_existing IS NOT NULL THEN
+      v_delta := v_delta - CASE WHEN v_existing = 'up' THEN 1 ELSE -1 END;
+      DELETE FROM forum_votes WHERE user_id = p_user_id AND reply_id = v_reply;
+    END IF;
+
+    IF v_new_vote IS NOT NULL THEN
+      INSERT INTO forum_votes (user_id, reply_id, vote_type) VALUES (p_user_id, v_reply, v_new_vote);
+      v_delta := v_delta + CASE WHEN v_new_vote = 'up' THEN 1 ELSE -1 END;
+    END IF;
+
+    IF v_delta <> 0 THEN
+      UPDATE forum_replies SET karma = COALESCE(karma, 0) + v_delta WHERE id = v_reply RETURNING karma INTO v_karma;
+    END IF;
+  ELSE
+    -- Ni tema ni odgovor: ne postoji red na kome bi glas živeo.
+    RETURN jsonb_build_object('changed', false, 'delta', 0, 'karma', 0);
+  END IF;
+
+  RETURN jsonb_build_object('changed', v_delta <> 0, 'delta', v_delta, 'karma', COALESCE(v_karma, 0));
+END;
+$$;
+
+-- ---------- 3. `cast_deal_vote` — NULL-safe `p_vote_type` ----------
+-- Isti razlog kao gore: `NULL`/`'null'` je otkaz glasa, ne greška.
+CREATE OR REPLACE FUNCTION cast_deal_vote(
+  p_user_id UUID,
+  p_deal_id TEXT,
+  p_vote_type TEXT
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_deal UUID := NULLIF(NULLIF(btrim(coalesce(p_deal_id, '')), ''), 'null')::UUID;
+  v_existing TEXT;
+  v_delta INT := 0;
+  v_score INT;
+  v_new_vote TEXT := NULLIF(lower(p_vote_type), 'null');
+BEGIN
+  IF v_deal IS NULL THEN
+    RETURN jsonb_build_object('changed', false, 'delta', 0, 'score', 0);
+  END IF;
+  IF v_new_vote IS NOT NULL AND v_new_vote NOT IN ('up', 'down') THEN
+    RAISE EXCEPTION 'invalid vote type: %', p_vote_type;
+  END IF;
+
+  SELECT score INTO v_score FROM deals WHERE id = v_deal FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('changed', false, 'delta', 0, 'score', 0);
+  END IF;
+
+  SELECT vote_type INTO v_existing
+  FROM deal_votes WHERE user_id = p_user_id AND deal_id = v_deal
+  FOR UPDATE;
+
+  IF v_existing IS NOT NULL THEN
+    v_delta := v_delta - CASE WHEN v_existing = 'up' THEN 1 ELSE -1 END;
+    DELETE FROM deal_votes WHERE user_id = p_user_id AND deal_id = v_deal;
+  END IF;
+
+  IF v_new_vote IS NOT NULL THEN
+    INSERT INTO deal_votes (user_id, deal_id, vote_type) VALUES (p_user_id, v_deal, v_new_vote);
+    v_delta := v_delta + CASE WHEN v_new_vote = 'up' THEN 1 ELSE -1 END;
+  END IF;
+
+  IF v_delta <> 0 THEN
+    UPDATE deals SET score = score + v_delta WHERE id = v_deal RETURNING score INTO v_score;
+  END IF;
+
+  RETURN jsonb_build_object('changed', v_delta <> 0, 'delta', v_delta, 'score', COALESCE(v_score, 0));
+END;
+$$;
+
+-- ---------- 4. DOZVOLE ZA RPC-OVE KOJE KORISTI SAMO BACKEND ----------
+-- `READ`/`anon` ključ ne treba da menja XP, glasove i kvestove direktno.
+-- Ostali RPC-ovi iz ranijih sekcija ovo nemaju — ovde se popunjava za sve
+-- mutirajuće funkcije da bi pravilo važilo jednako svuda.
+DO $$
+DECLARE
+  fn TEXT;
+  signatures TEXT[] := ARRAY[
+    'spend_daily_xp(UUID, INTEGER, INTEGER)',
+    'reset_daily_xp(UUID, DATE)',
+    'consume_totp_enrollment(UUID, INTEGER)',
+    'peek_totp_enrollment(UUID, INTEGER)',
+    'cast_forum_vote(UUID, TEXT, TEXT, TEXT)',
+    'cast_deal_vote(UUID, TEXT, TEXT)',
+    'advance_quest(UUID, VARCHAR, INTEGER)',
+    'apply_article_reaction(UUID, TEXT)',
+    'consume_auth_token(TEXT, VARCHAR)'
+  ];
+BEGIN
+  FOREACH fn IN ARRAY signatures LOOP
+    BEGIN
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC', fn);
+      EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO service_role', fn);
+    EXCEPTION WHEN undefined_function THEN
+      -- Druga migracija nije puštena (npr. pravimo bazu od nule do ovde) — preskoči.
+      RAISE NOTICE 'Preskočeno: % (funkcija ne postoji)', fn;
+    END;
+  END LOOP;
+END $$;
+
+-- ---------- 5. OSVEŽI POSTGREST KEŠ ----------
+-- Bez ovoga `rpc('apply_article_reaction')` i `rpc('advance_quest')` vraćaju
+-- `PGRST202` do restarta API-ja.
+NOTIFY pgrst, 'reload schema';
+
+-- SEKCIJA: server/schema-2.6.6-search-replies.sql
+-- ======================================================================
+-- ============================================================================
+-- NEXUS 2.6.6 — PRETRAGA ODGOVORA U TEMAMA (F-13)
+-- ----------------------------------------------------------------------------
+-- Do sada je `/api/search` vraćao samo TEMU (naslov + prvi post), pa je
+-- korisnik koji traži reč iz treće strane teme dobijao temu i morao da je
+-- čita celu. Ova sekcija dodaje `search_replies` — isti leksikalni sloj
+-- (`fold_srpski`/`stem_srpski`/`search_doc`) i isti ugovor kao `search_threads`,
+-- ali red po odgovoru, sa `thread_title` i `thread_id` za duboki link
+-- (`/thread/<id>#post-<reply_id>`).
+--
+-- Rezultat NAMERNO ne ulazi u `type=all` (vidi `server/lib/search.ts`):
+-- odgovori su mnogo brojniji od tema i potisnuli bi bolje pogotke.
+-- Idempotentno: DROP + CREATE OR REPLACE.
+-- ============================================================================
+
+DROP FUNCTION IF EXISTS search_replies(TEXT, TEXT, REGCONFIG, INT);
+
+CREATE OR REPLACE FUNCTION search_replies(
+  query TEXT,
+  ts_query TEXT DEFAULT '',
+  ts_config REGCONFIG DEFAULT 'simple',
+  max_results INT DEFAULT 10
+)
+RETURNS TABLE (
+  id UUID,
+  thread_id UUID,
+  thread_title TEXT,
+  snippet TEXT,
+  subforum TEXT,
+  author TEXT,
+  created_at TIMESTAMPTZ,
+  rank REAL
+)
+LANGUAGE sql
+STABLE
+AS $$
+  WITH q AS (
+    SELECT
+      coalesce(nullif(trim(query), ''), '') AS term,
+      coalesce(nullif(trim(ts_query), ''), '') AS ts
+  )
+  SELECT
+    r.id, r.thread_id, t.title AS thread_title,
+    coalesce(search_snippet(r.content, q.term), '') AS snippet,
+    coalesce(c.slug, '') AS subforum,
+    coalesce(u.username, '') AS author,
+    r.created_at,
+    (
+      similarity(coalesce(r.content, ''), q.term)
+      + CASE WHEN coalesce(r.content, '') ILIKE '%' || q.term || '%' THEN 2 ELSE 0 END
+      + CASE
+          WHEN q.ts <> '' AND public.search_doc(coalesce(r.content, '')) @@ to_tsquery(ts_config, q.ts) THEN 2.5
+          ELSE 0
+        END
+    )::REAL AS rank
+  FROM forum_replies r
+  JOIN forum_threads t ON t.id = r.thread_id
+  CROSS JOIN q
+  LEFT JOIN users u ON u.id = r.author_id
+  LEFT JOIN forum_categories c ON c.id = t.category_id
+  WHERE coalesce(r.is_deleted, FALSE) = FALSE
+    AND coalesce(t.is_deleted, FALSE) = FALSE
+    AND (
+      coalesce(r.content, '') ILIKE '%' || q.term || '%'
+      OR (q.ts <> '' AND public.search_doc(coalesce(r.content, '')) @@ to_tsquery(ts_config, q.ts))
+    )
+  ORDER BY rank DESC, r.created_at DESC
+  LIMIT LEAST(GREATEST(max_results, 1), 50);
+$$;
+
+-- Ista dozvola kao za ostale pretrage: samo backend (`service_role`).
+REVOKE ALL ON FUNCTION search_replies(TEXT, TEXT, REGCONFIG, INT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION search_replies(TEXT, TEXT, REGCONFIG, INT) TO service_role;
+
+NOTIFY pgrst, 'reload schema';
+
+-- SEKCIJA: server/schema-2.6.6-deal-topic.sql
+-- ======================================================================
+-- ============================================================================
+-- NEXUS 2.6.6 — TEMA IZ DEAL-A / „Diskutuj o ovom popustu“ (F-3)
+-- ----------------------------------------------------------------------------
+-- `forum_threads.deal_id` je jedina nova kolona. U `server/schema-ALL.sql`
+-- kolona se dodaje BEZ FK-a (tabela `deals` nastaje tek u sekciji 2.6.0, a
+-- `schema-ALL.sql` se pušta kao jedna transakcija) — zato se referenca
+-- uspostavlja ovde, posle `10-2.6.0-deals.sql`.
+--
+-- `ON DELETE SET NULL`: brisanje deal-a ne briše diskusiju, samo gubi karticu.
+-- Idempotentno — bezbedno za ponovno puštanje.
+-- ============================================================================
+
+ALTER TABLE forum_threads
+  ADD COLUMN IF NOT EXISTS deal_id UUID;
+
+-- F-7.1 #8 — „prati temu mejlom“: praćenje ostaje in-app, ova kolona dodaje mejl
+-- na novi odgovor (najviše 1 mejl / 15 min po korisniku i temi).
+ALTER TABLE thread_subscriptions
+  ADD COLUMN IF NOT EXISTS email_on_reply BOOLEAN NOT NULL DEFAULT false;
+
+CREATE INDEX IF NOT EXISTS idx_thread_subscriptions_email
+  ON thread_subscriptions(thread_id) WHERE email_on_reply;
+
+COMMENT ON COLUMN forum_threads.deal_id IS
+  'F-3 — deal iz kojeg je tema otvorena („Diskutuj o ovom popustu“); NULL za obične teme';
+
+-- FK dodajemo samo ako već ne postoji (ponovno puštanje ne puca).
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'forum_threads_deal_id_fkey'
+  ) THEN
+    ALTER TABLE forum_threads
+      ADD CONSTRAINT forum_threads_deal_id_fkey
+      FOREIGN KEY (deal_id) REFERENCES deals(id) ON DELETE SET NULL;
+  END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_forum_threads_deal ON forum_threads(deal_id);
+
+NOTIFY pgrst, 'reload schema';
+
+-- ============================================================================
+-- NEXUS 2.7.0 — F-9 „Kupio sam“ / F-4 PRICE ALERT / F-5 KOLEKCIJE / F-10 WARNINGS
+-- ----------------------------------------------------------------------------
+-- Sve je idempotentno (`IF NOT EXISTS`), pa se fajl i dalje može puštati više
+-- puta. Nema zavisnosti između sekcija — svaka se može primeniti i zasebno.
+-- ============================================================================
+
+-- ---------- F-9: „KUPIO SAM“ (deal_claims) ----------
+-- Socijalni dokaz, NE verifikacija kupovine: korisnik sam potvrđuje da je
+-- kupio preko ovog deal-a. UNIQUE (deal_id, user_id) → dvostruki klik i dva
+-- taba ne naduvavaju broj. `deals.score` ostaje netaknut (glasovi su drugo).
+CREATE TABLE IF NOT EXISTS deal_claims (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  deal_id UUID NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (deal_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_deal_claims_deal ON deal_claims (deal_id);
+CREATE INDEX IF NOT EXISTS idx_deal_claims_user ON deal_claims (user_id);
+
+ALTER TABLE deal_claims ENABLE ROW LEVEL SECURITY;
+
+-- ---------- F-4: PRICE ALERT (deal_watches) ----------
+-- Korisnik prati IGRU (`game_id`), ne pojedinačni deal; obaveštenje ide kada
+-- cena padne ispod `target_price`. `game_title`/`game_slug` su snapshot da
+-- praćenje preživi brisanje igre iz kataloga. `notified_at` je i throttling
+-- (1 mejl / 24 h po korisniku i igri) i znak da je mejl poslat.
+CREATE TABLE IF NOT EXISTS deal_watches (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  game_id UUID REFERENCES games(id) ON DELETE SET NULL,
+  game_title VARCHAR(200) NOT NULL,
+  game_slug VARCHAR(200),
+  target_price NUMERIC(10, 2) NOT NULL CHECK (target_price > 0),
+  currency VARCHAR(3) NOT NULL DEFAULT 'EUR',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  notified_at TIMESTAMPTZ
+);
+
+-- Jedno praćenje po (korisnik, igra) — ponovni POST samo menja prag.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_deal_watches_user_game
+  ON deal_watches (user_id, game_id) WHERE game_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_deal_watches_game ON deal_watches (game_id);
+
+ALTER TABLE deal_watches ENABLE ROW LEVEL SECURITY;
+
+-- ---------- F-5: KOLEKCIJE / LISTE IGARA ----------
+-- Korisničke liste („Top 10 RPG 2026“). Svaka je javna SEO stranica
+-- (/collections/:slug); `slug` je globalno jedinstven jer se koristi u URL-u.
+CREATE TABLE IF NOT EXISTS game_collections (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title VARCHAR(120) NOT NULL,
+  slug VARCHAR(140) NOT NULL UNIQUE,
+  description VARCHAR(600),
+  is_public BOOLEAN NOT NULL DEFAULT true,
+  score INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_game_collections_user ON game_collections (user_id);
+CREATE INDEX IF NOT EXISTS idx_game_collections_public ON game_collections (is_public, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS game_collection_items (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  collection_id UUID NOT NULL REFERENCES game_collections(id) ON DELETE CASCADE,
+  game_id UUID REFERENCES games(id) ON DELETE SET NULL,
+  game_title VARCHAR(200) NOT NULL,
+  game_slug VARCHAR(200),
+  game_cover VARCHAR(500),
+  note VARCHAR(280),
+  position INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_game_collection_items_collection
+  ON game_collection_items (collection_id, position);
+-- Ista igra ne može dva puta u istoj listi.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_game_collection_items_unique
+  ON game_collection_items (collection_id, game_slug) WHERE game_slug IS NOT NULL;
+
+-- Jedan glas po korisniku po listi (up/down), isto pravilo kao `deal_votes`.
+CREATE TABLE IF NOT EXISTS game_collection_votes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  collection_id UUID NOT NULL REFERENCES game_collections(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  vote_type VARCHAR(4) NOT NULL CHECK (vote_type IN ('up', 'down')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (collection_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_game_collection_votes_collection ON game_collection_votes (collection_id);
+
+ALTER TABLE game_collections ENABLE ROW LEVEL SECURITY;
+ALTER TABLE game_collection_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE game_collection_votes ENABLE ROW LEVEL SECURITY;
+
+-- ---------- F-10: UPOZORENJA (warnings) PRE BANA ----------
+-- Ban je poslednja mera; moderator prvo daje upozorenje sa razlogom i rokom.
+-- `acknowledged_at` beleži da je korisnik video upozorenje (banner u UI-ju),
+-- a `revoked_at` da ga je moderator poništio (pogrešna prijava).
+CREATE TABLE IF NOT EXISTS user_warnings (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  issued_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  reason VARCHAR(500) NOT NULL,
+  -- thread/reply/article/comment/user/deal — šta je bilo predmet prijave.
+  target_type VARCHAR(20),
+  target_id UUID,
+  expires_at TIMESTAMPTZ,
+  acknowledged_at TIMESTAMPTZ,
+  revoked_at TIMESTAMPTZ,
+  revoked_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_warnings_user ON user_warnings (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_user_warnings_active
+  ON user_warnings (user_id) WHERE revoked_at IS NULL;
+
+ALTER TABLE user_warnings ENABLE ROW LEVEL SECURITY;
+
+COMMENT ON TABLE deal_claims IS
+  'F-9 — korisnik potvrdio da je kupio preko deal-a (socijalni dokaz, ne verifikacija)';
+COMMENT ON TABLE deal_watches IS
+  'F-4 — praćenje cene igre; mejl kada deal padne ispod target_price (throttle 24 h)';
+COMMENT ON TABLE game_collections IS
+  'F-5 — korisničke liste igara (javna SEO stranica /collections/:slug)';
+COMMENT ON TABLE user_warnings IS
+  'F-10 — upozorenja moderatora pre bana; ban ostaje u bans tabeli';
+
+-- ---------- F-2: DNEVNI LOOP (streak + dnevni kvest) ----------
+-- Jedan red po (korisnik, dan). `day` je kalendarski datum u vremenskoj zoni
+-- servera (`dayKey()` u `server/lib/dailyLoop.ts`), pa se streak računa bez
+-- vremenskih zona u SQL-u. `bonus_claimed`/`quest_completed` su idempotentne
+-- oznake (drugi post istog dana ne daje bonus ponovo).
+CREATE TABLE IF NOT EXISTS user_daily_activity (
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  day DATE NOT NULL,
+  posts INTEGER NOT NULL DEFAULT 0,
+  xp INTEGER NOT NULL DEFAULT 0,
+  bonus_claimed BOOLEAN NOT NULL DEFAULT false,
+  quest_completed BOOLEAN NOT NULL DEFAULT false,
+  PRIMARY KEY (user_id, day)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_daily_activity_day ON user_daily_activity (day);
+
+ALTER TABLE user_daily_activity ENABLE ROW LEVEL SECURITY;
+
+COMMENT ON TABLE user_daily_activity IS
+  'F-2 — dnevna aktivnost (streak, XP dana, bonus za prvi post, dnevni kvest)';
+
+-- ---------- F-7: WEB PUSH PRETPLATE (push_subscriptions) ----------
+-- Jedan red po uređaju/pretplati. `endpoint` je jedinstven kod push servisa
+-- (FCM/Mozilla autopush), pa je UNIQUE globalan — isti uređaj koji se prijavi
+-- drugim nalogom menja vlasnika umesto da pravi duplikat.
+-- `p256dh`/`auth` su javni ključevi pretplate (ne tajne korisnika).
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  endpoint TEXT NOT NULL UNIQUE,
+  p256dh VARCHAR(200) NOT NULL,
+  auth VARCHAR(200) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions (user_id);
+
+ALTER TABLE push_subscriptions ENABLE ROW LEVEL SECURITY;
+
+COMMENT ON TABLE push_subscriptions IS
+  'F-7 — web push pretplate (jedan red po uređaju; ruta /api/push/*)';
+
+-- ---------- F-11: KALKULATOR BUILD-a ----------
+-- Katalog komponenti sa cenom kod JEDNE domaće prodavnice (moderator menja
+-- cenu kada se promeni — isti obrazac kao `deals`, bez scrapinga). Build je
+-- korisnički izbor komponenti; `share_id` je kratak javni ID za deljenje.
+CREATE TABLE IF NOT EXISTS pc_components (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  category VARCHAR(20) NOT NULL CHECK (category IN (
+    'cpu','gpu','motherboard','ram','storage','psu','case','cooler','monitor','peripheral'
+  )),
+  name VARCHAR(140) NOT NULL,
+  brand VARCHAR(60),
+  spec VARCHAR(160),
+  price NUMERIC(12, 2) NOT NULL CHECK (price > 0),
+  currency VARCHAR(3) NOT NULL DEFAULT 'RSD',
+  store VARCHAR(80) NOT NULL,
+  url VARCHAR(1000),
+  image_url VARCHAR(1000),
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_pc_components_category ON pc_components (category, price);
+
+CREATE TABLE IF NOT EXISTS pc_builds (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title VARCHAR(120) NOT NULL,
+  is_public BOOLEAN NOT NULL DEFAULT true,
+  share_id VARCHAR(16) NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_pc_builds_user ON pc_builds (user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS pc_build_items (
+  build_id UUID NOT NULL REFERENCES pc_builds(id) ON DELETE CASCADE,
+  component_id UUID NOT NULL REFERENCES pc_components(id) ON DELETE CASCADE,
+  qty SMALLINT NOT NULL DEFAULT 1 CHECK (qty BETWEEN 1 AND 10),
+  PRIMARY KEY (build_id, component_id)
+);
+
+ALTER TABLE pc_components ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pc_builds ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pc_build_items ENABLE ROW LEVEL SECURITY;
+
+COMMENT ON TABLE pc_components IS
+  'F-11 — katalog PC komponenti sa cenama kod domaćih prodavnica (kalkulator build-a)';
+COMMENT ON TABLE pc_builds IS
+  'F-11 — sačuvani build-ovi korisnika; `share_id` je javni deljivi ID';
+
+-- ======================================================================
+-- F-15 — TRUSTED DEVICE ZA 2FA („zapamti ovaj uređaj 30 dana“)
+-- ======================================================================
+-- Cookie `nx_trust` nosi sirovi token; ovde je SAMO SHA-256 hash i `device_id`
+-- (jedan red = jedan uređaj). Čuvanje po `device_id` omogućava:
+--   * svako ponovno uspešno 2FA prijavljivanje na isti uređaj produžava rok;
+--   * isključivanje 2FA i promena lozinke brišu sve redove korisnika.
+CREATE TABLE IF NOT EXISTS trusted_devices (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  device_id TEXT NOT NULL,
+  token_hash TEXT NOT NULL,
+  user_agent TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at TIMESTAMPTZ NOT NULL,
+  last_used_at TIMESTAMPTZ,
+  UNIQUE (user_id, device_id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_trusted_devices_hash ON trusted_devices (token_hash);
+CREATE INDEX IF NOT EXISTS idx_trusted_devices_user ON trusted_devices (user_id);
+CREATE INDEX IF NOT EXISTS idx_trusted_devices_expires ON trusted_devices (expires_at);
+
+ALTER TABLE trusted_devices ENABLE ROW LEVEL SECURITY;
+
+COMMENT ON TABLE trusted_devices IS
+  'F-15 — 2FA trusted devices: hash tokena iz HttpOnly cookie-ja nx_trust, rok 30 dana';
+
+-- ============================================================================
+-- NEXUS 2.7.2 — SITNI DELJENI KLJUČ–VREDNOST, TIPOVI NOTIFIKACIJA, SOFT DELETE
+-- ----------------------------------------------------------------------------
+-- Zatvara rupe između koda i šeme koje su ostale posle 2.7.0. Isti sadržaj je
+-- i u `server/sql/22-2.7.2-email-notifikacije.sql` (taj fajl je samostalna
+-- migracija za živu bazu). Idempotentno — bezbedno za ponovno puštanje.
+-- ============================================================================
+
+-- ---------- 1. `site_meta` (deljeni ključ–vrednost) ----------
+-- Koriste ga: throttle „1 mejl / 15 min“ po temi (`lib/threadEmails.ts`),
+-- marker poslednjeg digesta (`lib/digest.ts`), red zakazanih kampanja
+-- (`lib/campaigns.ts`). Bez tabele sve tri stvari tiho žive u `Map`-u procesa.
+CREATE TABLE IF NOT EXISTS site_meta (
+  key TEXT PRIMARY KEY,
+  value JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_site_meta_updated ON site_meta (updated_at);
+
+ALTER TABLE site_meta ENABLE ROW LEVEL SECURITY;
+
+COMMENT ON TABLE site_meta IS
+  'Deljeni ključ–vrednost: digest marker, throttle mejla po temi, red zakazanih newsletter kampanja';
+
+-- ---------- 2. `notifications.type` — prošireno CHECK ----------
+-- Kod šalje i `warning` (F-10), `streak` i `level_up` (F-2), `price_alert` (F-4);
+-- bez ovoga insert puca (23514) i te notifikacije nikad ne stižu u zvonce.
+ALTER TABLE notifications DROP CONSTRAINT IF EXISTS notifications_type_check;
+
+-- Živa baza (2.4.x) ima inline CHECK iz `CREATE TABLE`; ime zavisi od verzije
+-- Postgresa (`notifications_type_check`, `…check1`). Zato tražimo svaki CHECK
+-- na `notifications` koji pominje `reply` i uklanjamo ga pre novog.
+DO $$
+DECLARE
+  c RECORD;
+BEGIN
+  FOR c IN
+    SELECT conname FROM pg_constraint
+    WHERE conrelid = 'notifications'::regclass AND contype = 'c'
+      AND pg_get_constraintdef(oid) ILIKE '%reply%'
+  LOOP
+    EXECUTE format('ALTER TABLE notifications DROP CONSTRAINT %I', c.conname);
+  END LOOP;
+END $$;
+
+-- 3.0.0 — lista MORA da pokriva sve iz `notificationTypeSchema`
+-- (`contracts/index.ts`). Do 3.0.0 su `guestbook`, `dm` i `user_follow` bili
+-- u kodu i tipovima, a ne u ovom CHECK-u: svaki insert je padao sa 23514
+-- (`violates check constraint`), pa te notifikacije nikad nisu stizale.
+-- Novi tipovi (`verification`, `staff`) dolaze iz istog razloga.
+ALTER TABLE notifications
+  ADD CONSTRAINT notifications_type_check CHECK (type IN (
+    'reply', 'mention', 'upvote', 'badge_earned', 'quest_completed', 'system',
+    'warning', 'streak', 'level_up', 'price_alert',
+    'guestbook', 'dm', 'user_follow',
+    'verification', 'staff'
+  ));
+
+CREATE INDEX IF NOT EXISTS idx_notifications_unread
+  ON notifications (user_id) WHERE is_read = false;
+
+-- ---------- 3. SOFT DELETE TEME (F-10 „Vrati“) ----------
+-- `is_deleted` postoji od 2.4.1; ovde su samo tragovi ko/ kada.
+ALTER TABLE forum_threads
+  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
+ALTER TABLE forum_threads
+  ADD COLUMN IF NOT EXISTS deleted_by UUID REFERENCES users(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_forum_threads_visible
+  ON forum_threads (last_activity_at DESC) WHERE is_deleted = false;
+
+NOTIFY pgrst, 'reload schema';
+
+
+-- ======================================================================
+-- SEKCIJA: server/schema-2.8.0-guides.sql
+-- ======================================================================
+
+-- ============================================================================
+-- NEXUS 2.8.0 — VODIČI (game_guides) + GLASANJE (guide_votes)
+-- ----------------------------------------------------------------------------
+-- Community vodiči vezani za igru (Game Page):
+--   * game_guides  — jedan red po vodiču; `slug` je globalno unikatan jer ide u
+--                    SEO URL `/games/:gameSlug/guides/:guideSlug`
+--                    (vodič pripada jednoj igri, ali URL nije kolizija sa drugim
+--                    igrama jer sadrži i gameSlug; globalni UNIQUE je jednostavno
+--                    sigurno pravilo i indeksira se istim indeksom);
+--   * guide_votes  — jedan glas po korisniku po vodiču (up/down), isti obrazac
+--                    kao `deal_votes`;
+--   * cast_guide_vote — atomični glas (FOR UPDATE lock + delta), kopija
+--                    `cast_deal_vote` obrasca; vraća { changed, delta, score }.
+--
+-- Idempotentno — bezbedno za ponovno puštanje. Pokreni NAKON
+-- `21-2.7.0-retention.sql` i `22-2.7.2-email-notifikacije.sql`.
+-- ============================================================================
+
+-- ---------- 1. VODIČI ----------
+-- `status`: 'published' je javno vidljiv; 'draft' vidi samo autor (u budućoj
+-- moderaciji), 'archived' = skinut sa liste, ali zadržan zbog linkova.
+CREATE TABLE IF NOT EXISTS game_guides (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  game_id UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+  author_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  slug VARCHAR(160) NOT NULL UNIQUE,
+  title VARCHAR(160) NOT NULL,
+  summary VARCHAR(300),
+  -- Sadržaj je sanitizovani HTML (server `sanitizeRichText`), isti oblik kao
+  -- sadržaj tema/članaka — klijent ga renderuje kroz DOMPurify.
+  content TEXT NOT NULL,
+  category VARCHAR(24) NOT NULL DEFAULT 'general'
+    CHECK (category IN ('walkthrough', 'builds', 'achievements', 'tips', 'general')),
+  score INTEGER NOT NULL DEFAULT 0,
+  views_count INTEGER NOT NULL DEFAULT 0,
+  status VARCHAR(12) NOT NULL DEFAULT 'published'
+    CHECK (status IN ('published', 'draft', 'archived')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Liste po igri: top (score) i najnoviji; filter po kategoriji se dodaje na
+-- pretragu po indeksu (bez posebnog indeksa — kategorija je malo N vrednosti).
+CREATE INDEX IF NOT EXISTS idx_game_guides_game_status_score
+  ON game_guides (game_id, status, score DESC, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_game_guides_game_status_created
+  ON game_guides (game_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_game_guides_author ON game_guides (author_id);
+
+COMMENT ON TABLE game_guides IS
+  '2.8.0 — community vodiči za igru (Game Page sekcija „Vodiči“, URL /games/:gameSlug/guides/:guideSlug)';
+
+-- ---------- 2. GLASANJE ----------
+-- Isti oblik kao `deal_votes`: promena glasa je UPDATE, otkaz je DELETE.
+CREATE TABLE IF NOT EXISTS guide_votes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  guide_id UUID NOT NULL REFERENCES game_guides(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  vote_type VARCHAR(8) NOT NULL CHECK (vote_type IN ('up', 'down')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (guide_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_guide_votes_guide ON guide_votes (guide_id);
+CREATE INDEX IF NOT EXISTS idx_guide_votes_user ON guide_votes (user_id);
+
+-- ---------- ATOMIČNI GLAS ----------
+-- NULL-safe `p_vote_type` (isti obrazac kao `cast_deal_vote` iz 2.6.5):
+-- 'up' | 'down' | NULL/'null' (otkaz). Vraća { changed, delta, score }.
+CREATE OR REPLACE FUNCTION cast_guide_vote(
+  p_user_id UUID,
+  p_guide_id TEXT,
+  p_vote_type TEXT
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_guide UUID := NULLIF(NULLIF(btrim(coalesce(p_guide_id, '')), ''), 'null')::UUID;
+  v_existing TEXT;
+  v_delta INT := 0;
+  v_score INT;
+  v_new_vote TEXT := NULLIF(lower(p_vote_type), 'null');
+BEGIN
+  IF v_guide IS NULL THEN
+    RETURN jsonb_build_object('changed', false, 'delta', 0, 'score', 0);
+  END IF;
+  IF v_new_vote IS NOT NULL AND v_new_vote NOT IN ('up', 'down') THEN
+    RAISE EXCEPTION 'invalid vote type: %', p_vote_type;
+  END IF;
+
+  SELECT score INTO v_score FROM game_guides WHERE id = v_guide FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('changed', false, 'delta', 0, 'score', 0);
+  END IF;
+
+  SELECT vote_type INTO v_existing
+  FROM guide_votes WHERE user_id = p_user_id AND guide_id = v_guide
+  FOR UPDATE;
+
+  IF v_existing IS NOT NULL THEN
+    v_delta := v_delta - CASE WHEN v_existing = 'up' THEN 1 ELSE -1 END;
+    DELETE FROM guide_votes WHERE user_id = p_user_id AND guide_id = v_guide;
+  END IF;
+
+  IF v_new_vote IS NOT NULL THEN
+    INSERT INTO guide_votes (user_id, guide_id, vote_type) VALUES (p_user_id, v_guide, v_new_vote);
+    v_delta := v_delta + CASE WHEN v_new_vote = 'up' THEN 1 ELSE -1 END;
+  END IF;
+
+  IF v_delta <> 0 THEN
+    UPDATE game_guides SET score = score + v_delta WHERE id = v_guide RETURNING score INTO v_score;
+  END IF;
+
+  RETURN jsonb_build_object('changed', v_delta <> 0, 'delta', v_delta, 'score', COALESCE(v_score, 0));
+END;
+$$;
+
+-- ---------- PREGLEDI (RPC bez čitanja reda) ----------
+CREATE OR REPLACE FUNCTION increment_guide_views(p_guide_id TEXT)
+RETURNS void
+LANGUAGE sql
+AS $$
+  UPDATE game_guides SET views_count = COALESCE(views_count, 0) + 1
+  WHERE id = NULLIF(NULLIF(btrim(coalesce(p_guide_id, '')), ''), 'null')::UUID;
+$$;
+
+REVOKE ALL ON FUNCTION increment_guide_views(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION increment_guide_views(TEXT) TO service_role;
+
+-- ---------- TRIGGER: updated_at ----------
+DROP TRIGGER IF EXISTS update_game_guides_updated_at ON game_guides;
+CREATE TRIGGER update_game_guides_updated_at
+  BEFORE UPDATE ON game_guides
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ---------- 5. RLS (deny-by-default; service_role zaobilazi) ----------
+ALTER TABLE game_guides ENABLE ROW LEVEL SECURITY;
+ALTER TABLE guide_votes ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON FUNCTION cast_guide_vote(UUID, TEXT, TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION cast_guide_vote(UUID, TEXT, TEXT) TO service_role;
+
+-- ---------- 6. OSVEŽI POSTGREST KEŠ ----------
+NOTIFY pgrst, 'reload schema';
+
+-- Provera posle puštanja:
+-- SELECT tablename, rowsecurity FROM pg_tables
+-- WHERE schemaname='public' AND tablename IN ('game_guides','guide_votes');
+
+-- ============================================================================
+-- PRIVATNE PORUKE (DM) — 2.11.0
+-- ============================================================================
+-- Dve tabele, bez „thread“ objekta: razgovor je PAR korisnika (`user_low` je
+-- uvek manji UUID), pa nema duplikata A→B / B→A.
+--
+--   dm_conversations — jedan red po paru, `last_message_at` za sortiranje liste
+--   direct_messages  — poruke; `read_at` je datum kad je PRIMALAC pročitao
+--
+-- RLS je deny-by-default; server ide kroz service_role i sam proverava
+-- pripadnost razgovoru. `ON DELETE CASCADE` na obe strane čisti istoriju kada
+-- se nalog obriše (GDPR — brisanje naloga ne sme da ostavi poruke).
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS dm_conversations (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_low UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_high UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  last_message_at TIMESTAMP DEFAULT NOW(),
+  created_at TIMESTAMP DEFAULT NOW(),
+  CONSTRAINT dm_conversations_ordered CHECK (user_low < user_high),
+  CONSTRAINT dm_conversations_pair UNIQUE (user_low, user_high)
+);
+
+CREATE INDEX IF NOT EXISTS idx_dm_conversations_low
+  ON dm_conversations (user_low, last_message_at DESC);
+CREATE INDEX IF NOT EXISTS idx_dm_conversations_high
+  ON dm_conversations (user_high, last_message_at DESC);
+
+CREATE TABLE IF NOT EXISTS direct_messages (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  conversation_id UUID NOT NULL REFERENCES dm_conversations(id) ON DELETE CASCADE,
+  sender_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  content TEXT NOT NULL CHECK (char_length(content) BETWEEN 1 AND 4000),
+  read_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_direct_messages_conversation
+  ON direct_messages (conversation_id, created_at DESC);
+-- Nepročitane po primaocu: brz `COUNT(*) WHERE read_at IS NULL`.
+CREATE INDEX IF NOT EXISTS idx_direct_messages_unread
+  ON direct_messages (sender_id, read_at) WHERE read_at IS NULL;
+
+-- ---------- RLS (deny-by-default; service_role zaobilazi) ----------
+ALTER TABLE dm_conversations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE direct_messages ENABLE ROW LEVEL SECURITY;
+
+NOTIFY pgrst, 'reload schema';
+
+-- Provera posle puštanja:
+-- SELECT tablename, rowsecurity FROM pg_tables
+-- WHERE schemaname='public' AND tablename IN ('dm_conversations','direct_messages');
+
+-- ============================================================================
+-- PRAĆENJE KORISNIKA (FOLLOW) — 2.12.0
+-- ============================================================================
+-- Jedan red = jedan vez: `follower_id` prati `following_id`.
+--   * UNIQUE par — duplikat „zaprati“ ne pravi dva reda (idempotentno),
+--   * `ON DELETE CASCADE` obe strane — brisanje naloga (GDPR) čisti vezove,
+--   * CHECK zabranjuje samopraćenje (nema smisla i otvara rupe u notifikacijama).
+-- RLS je deny-by-default; server ide kroz service_role.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS user_follows (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  follower_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  following_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMP DEFAULT NOW(),
+  CONSTRAINT user_follows_no_self CHECK (follower_id <> following_id),
+  CONSTRAINT user_follows_pair UNIQUE (follower_id, following_id)
+);
+-- „Koga X prati“ — lista pratioca profila i feed praćenih autora.
+CREATE INDEX IF NOT EXISTS idx_user_follows_follower
+  ON user_follows (follower_id, created_at DESC);
+-- „Ko prati X“ — brojač pratilaca na profilu (COUNT po indeksu).
+CREATE INDEX IF NOT EXISTS idx_user_follows_following
+  ON user_follows (following_id, created_at DESC);
+-- ---------- RLS (deny-by-default; service_role zaobilazi) ----------
+ALTER TABLE user_follows ENABLE ROW LEVEL SECURITY;
+NOTIFY pgrst, 'reload schema';
+-- Provera posle puštanja:
+-- SELECT tablename, rowsecurity FROM pg_tables
+-- WHERE schemaname='public' AND tablename IN ('user_follows');
+
+-- ============================================================================
+-- IZVORI VESTI I GRUPISANJE DOGAĐAJA — 2.13.0
+-- ============================================================================
+-- `source_url`  — link na originalnu vest; UNIQUE (delimični indeks) = dedupe.
+-- `news_source` — ime izvora (Polygon, Kotaku…), prikaz „Izvor: X“.
+-- `event_id`    — grupa vesti o istom događaju (vremenska linija).
+-- ============================================================================
+ALTER TABLE articles ADD COLUMN IF NOT EXISTS source_url TEXT;
+ALTER TABLE articles ADD COLUMN IF NOT EXISTS news_source VARCHAR(80);
+ALTER TABLE articles ADD COLUMN IF NOT EXISTS event_id VARCHAR(120);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_articles_source_url
+  ON articles (source_url)
+  WHERE source_url IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_articles_event
+  ON articles (event_id, published_at DESC)
+  WHERE event_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_articles_news_source
+  ON articles (news_source, created_at DESC)
+  WHERE news_source IS NOT NULL;
+
+-- ============================================================================
+-- DE-DUPLIKACIJA SLIKA VESTI — 2.13.1
+-- ============================================================================
+-- Ista originalna slika se preslikava u Storage samo JEDNOM; ponovni uvoz
+-- vraća postojeći `mirrored_url` (nema dva identična WebP fajla).
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS news_images (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  original_url TEXT NOT NULL UNIQUE,
+  mirrored_url TEXT NOT NULL,
+  uses INTEGER NOT NULL DEFAULT 1,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_news_images_original ON news_images (original_url);
+ALTER TABLE news_images ENABLE ROW LEVEL SECURITY;
+
+-- ============================================================================
+-- XP / NIVO — 6.0.0 (isto kao `server/sql/29-6.0.0-xp-progression.sql`)
+-- ============================================================================
+-- Nivo se NE upisuje ručno: izvodi se iz XP-a triggerom, pa `users.level` nikad
+-- ne može da zaostane (npr. 756 XP a i dalje „LVL 1“). Admin korekcija ide
+-- kroz `bump_user_xp` (mimo dnevnog limita `spend_daily_xp`).
+
+CREATE OR REPLACE FUNCTION public.xp_for_level(p_level INTEGER)
+RETURNS INTEGER
+LANGUAGE sql
+IMMUTABLE
+PARALLEL SAFE
+AS $$
+  -- round(500 * level^1.35) — poklapa se sa `xpForLevel` u server/lib/store.ts
+  SELECT ROUND(500 * POWER(GREATEST(COALESCE(p_level, 1), 1), 1.35))::INTEGER;
+$$;
+
+CREATE OR REPLACE FUNCTION public.level_from_xp(p_xp INTEGER)
+RETURNS INTEGER
+LANGUAGE plpgsql
+IMMUTABLE
+PARALLEL SAFE
+AS $$
+DECLARE
+  v_level INTEGER := 1;
+  v_xp    INTEGER := GREATEST(COALESCE(p_xp, 0), 0);
+BEGIN
+  WHILE v_level < 200 AND public.xp_for_level(v_level + 1) <= v_xp LOOP
+    v_level := v_level + 1;
+  END LOOP;
+  RETURN v_level;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.sync_user_level()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  NEW.xp := GREATEST(COALESCE(NEW.xp, 0), 0);
+  NEW.level := public.level_from_xp(NEW.xp);
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_users_level_from_xp ON users;
+CREATE TRIGGER trg_users_level_from_xp
+  BEFORE INSERT OR UPDATE OF xp, level ON users
+  FOR EACH ROW EXECUTE FUNCTION public.sync_user_level();
+
+UPDATE users
+SET level = public.level_from_xp(GREATEST(COALESCE(xp, 0), 0))
+WHERE level IS DISTINCT FROM public.level_from_xp(GREATEST(COALESCE(xp, 0), 0));
+
+CREATE OR REPLACE FUNCTION public.bump_user_xp(p_user_id UUID, p_amount INTEGER)
+RETURNS SETOF users
+LANGUAGE sql
+VOLATILE
+AS $$
+  UPDATE users
+     SET xp = GREATEST(0, COALESCE(xp, 0) + COALESCE(p_amount, 0)),
+         updated_at = NOW()
+   WHERE id = p_user_id
+  RETURNING *;
+$$;
+
+REVOKE ALL ON FUNCTION public.bump_user_xp(UUID, INTEGER) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.bump_user_xp(UUID, INTEGER) TO service_role;
 
 NOTIFY pgrst, 'reload schema';

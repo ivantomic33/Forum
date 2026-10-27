@@ -1,7 +1,7 @@
 ﻿import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Award, Bookmark, ListChecks, MessageSquare, TrendingUp, Trophy, X } from 'lucide-react';
+import { Award, Bookmark, ListChecks, MessageSquare, Shield, SlidersHorizontal, TrendingUp, Trophy, User, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '../lib/api';
 import { useAuthStore } from '../store/authStore';
@@ -9,12 +9,25 @@ import {
   Button, Card, CardHeader, ErrorState, Modal, SkeletonRows, Tabs,
 } from '../components/ui';
 import { ProfileHeroSkeleton } from '../components/profile/constants';
-import { ProfileHeader, LevelCard } from '../components/profile/ProfileHeader';
+import { ProfileHeader, LevelCard, ProfileQuickStats } from '../components/profile/ProfileHeader';
 import { ConnectedAccounts } from '../components/profile/ConnectedAccounts';
 import { ProfileBadges, AccountPrivacySection, ProfileSettingsForm, ProfileTabsContent } from '../components/profile/ProfileSections';
 import { AccountSecuritySection } from '../components/profile/AccountSecurity';
+import { SessionManagerSection } from '../components/profile/SessionManager';
+import { PasskeysSection } from '../components/profile/PasskeysSection';
+import { LoginStreakCard } from '../components/profile/LoginStreakCard';
+import { ProfileGuestbook } from '../components/profile/ProfileGuestbook';
+// F-7 — push je postojao ali nije bio montiran nigde; sada je uz mejl kanal.
+import { PushNotificationsSection } from '../components/profile/PushNotificationsSection';
+import { QuietHoursSection } from '../components/profile/QuietHoursSection';
+import { ProfileTimeline } from '../components/profile/ProfileTimeline';
+import { NewLoginAlertBanner } from '../components/profile/NewLoginAlertBanner';
+import { NotificationEmailSection } from '../components/profile/NotificationEmailSection';
 
 type ProfileTab = 'threads' | 'activity' | 'badges' | 'saved' | 'quests';
+
+/** Pod-tabovi unutar "Uredi svoj profil" modala (#redizajn). */
+type SettingsTab = 'profile' | 'security' | 'privacy';
 
 const PROFILE_TABS: ProfileTab[] = ['threads', 'activity', 'badges', 'saved', 'quests'];
 
@@ -55,8 +68,23 @@ export default function ProfilePage() {
   const [connectValue, setConnectValue] = useState('');
   const [connecting, setConnecting] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>('profile');
+
+  // 6.x — link `?settings=security` (iz notifikacije „nova prijava“) otvara
+  // modal direktno na Bezbednosti, gde je dugme „Odjavi sve uređaje“.
+  useEffect(() => {
+    const requested = searchParams.get('settings');
+    if (!requested || !['profile', 'security', 'privacy'].includes(requested)) return;
+    setSettingsTab(requested as SettingsTab);
+    setSettingsOpen(true);
+    const params = new URLSearchParams(searchParams);
+    params.delete('settings');
+    setSearchParams(params, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
   const [editBio, setEditBio] = useState('');
   const [editAvatar, setEditAvatar] = useState('');
+  const [editCover, setEditCover] = useState('violet');
   const [savingSettings, setSavingSettings] = useState(false);
 
   const profileQuery = useQuery({
@@ -110,6 +138,7 @@ export default function ProfilePage() {
     if (profile) {
       setEditBio(profile.bio || '');
       setEditAvatar(profile.avatar || '');
+      setEditCover((profile as { coverPreset?: string | null }).coverPreset || 'violet');
     }
   }, [profile]);
 
@@ -180,6 +209,14 @@ export default function ProfilePage() {
       const xp = result.awarded?.xp ? ` +${result.awarded.xp} XP` : '';
       if (result.verified === false) toast.warning(result.message);
       else toast.success(`${result.message}${xp}`);
+      // 8 — konfete za nove bedževe / level-up (server javlja u `awarded`).
+      if (result.awarded?.levelUp) {
+        const { celebrateLevelUp } = await import('../lib/celebrate');
+        celebrateLevelUp();
+      } else if (result.awarded?.newBadges?.length) {
+        const { celebrateBadge } = await import('../lib/celebrate');
+        celebrateBadge(result.awarded.newBadges);
+      }
       setConnectPlatform(null);
       setConnectValue('');
       profileQuery.refetch();
@@ -210,8 +247,8 @@ export default function ProfilePage() {
   const handleSaveSettings = async (event: React.FormEvent) => {    event.preventDefault();
     setSavingSettings(true);
     try {
-      await api.users.updateProfile({ bio: editBio.trim(), avatar: editAvatar.trim() });
-      updateUser({ bio: editBio.trim(), avatar: editAvatar.trim() });
+      await api.users.updateProfile({ bio: editBio.trim(), avatar: editAvatar.trim(), coverPreset: editCover });
+      updateUser({ bio: editBio.trim(), avatar: editAvatar.trim(), coverPreset: editCover } as any);
       setSettingsOpen(false);
       toast.success('Profil je uspešno ažuriran!');
       profileQuery.refetch();
@@ -262,7 +299,7 @@ export default function ProfilePage() {
     <div className="section min-h-[92vh] pb-16" aria-labelledby="profile-name">
       <div className="container max-w-6xl space-y-5">
         <ProfileHeader
-          user={ownProfile}
+          user={{ ...ownProfile, badges }}
           isOwner={isOwner}
           connectedCount={Object.keys(connectedAccounts).length}
           threadCount={userThreads.length}
@@ -270,9 +307,17 @@ export default function ProfilePage() {
           onEdit={() => setSettingsOpen(true)}
         />
 
+        {/* Nivo/XP/desktop rail je već u gaming kartici (PlayerCard) — leva
+            kolona ostaje samo na ≥ lg, da se progress ne prikazuje dvaput. */}
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-          <div className="space-y-5 lg:sticky lg:top-24 lg:self-start">
+          <div className="hidden space-y-5 lg:sticky lg:top-24 lg:block lg:self-start">
             <LevelCard user={ownProfile} />
+            <ProfileQuickStats
+              karma={Number(ownProfile.karma || 0)}
+              solved={Number(ownProfile.solvedAnswers || 0)}
+              badges={badges.length}
+              threads={userThreads.length}
+            />
           </div>
 
           <div className="space-y-5 lg:col-span-2">
@@ -286,7 +331,14 @@ export default function ProfilePage() {
               onDisconnect={handleDisconnect}
             />
 
-            <ProfileBadges badges={badges} />
+            {/* 6.x — poslednjih 5 poteza (puni spisak je u tabu „Aktivnost“). */}
+            <ProfileTimeline
+              activities={userActivities}
+              username={targetUsername}
+              onOpenAll={() => changeTab('activity')}
+            />
+
+            <ProfileGuestbook username={targetUsername} />
 
             <Card variant="static">
               <CardHeader
@@ -353,35 +405,89 @@ export default function ProfilePage() {
         </form>
       </Modal>
 
-      {/* Uređivanje profila */}
+      {/* Uređivanje profila — pod-tabovi: Profil / Bezbednost / Privatnost */}
       <Modal
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         title="Uredi svoj profil"
         description="Prilagodi svoj gaming avatar i biografiju, upravljaj bezbednošću naloga."
-        size="md"
+        size="2xl"
         footer={
           <>
             <Button variant="secondary" size="sm" onClick={() => setSettingsOpen(false)}>
               Otkaži
             </Button>
-            <Button size="sm" type="submit" form="profile-settings-form" loading={savingSettings}>
-              Sačuvaj izmene
-            </Button>
+            {settingsTab === 'profile' && (
+              <Button size="sm" type="submit" form="profile-settings-form" loading={savingSettings}>
+                Sačuvaj izmene
+              </Button>
+            )}
           </>
         }
       >
-        <ProfileSettingsForm
-          avatar={editAvatar}
-          bio={editBio}
-          onAvatarChange={setEditAvatar}
-          onBioChange={setEditBio}
-          onSubmit={handleSaveSettings}
+        <Tabs
+          ariaLabel="Sekcije podešavanja"
+          variant="pills"
+          value={settingsTab}
+          onChange={(value) => setSettingsTab(value as SettingsTab)}
+          items={[
+            { id: 'profile', label: 'Profil', icon: <User size={14} /> },
+            { id: 'security', label: 'Bezbednost', icon: <Shield size={14} /> },
+            { id: 'privacy', label: 'Privatnost', icon: <SlidersHorizontal size={14} /> },
+          ]}
+          className="mb-5 w-fit"
         />
-        {/* F-33 — 2FA (TOTP) + recovery kodovi */}
-        <AccountSecuritySection />
-        {/* F-09 — izvoz podataka i brisanje naloga (GDPR/ZZPL) */}
-        <AccountPrivacySection onLogout={handleAccountDeleted} />
+
+        {settingsTab === 'profile' && (
+          <ProfileSettingsForm
+            avatar={editAvatar}
+            bio={editBio}
+            coverPreset={editCover}
+            onAvatarChange={setEditAvatar}
+            onBioChange={setEditBio}
+            onCoverChange={setEditCover}
+            onSubmit={handleSaveSettings}
+          />
+        )}
+
+        {settingsTab === 'security' && (
+          <div className="space-y-6">
+            {/* 6.x — „nova prijava“ notifikacija vodi ovde sa CTA-om „Nisam ja“ */}
+            <NewLoginAlertBanner />
+            {/* F-33 — 2FA (TOTP) + recovery kodovi */}
+            <AccountSecuritySection />
+            {/* 5.2 — passkeys (WebAuthn) kao drugi faktor bez lozinke */}
+            <div className="border-t border-[var(--color-border-subtle)] pt-5">
+              <PasskeysSection />
+            </div>
+            {/* 5.1 — aktivne sesije na svim uređajima */}
+            <div className="border-t border-[var(--color-border-subtle)] pt-5">
+              <SessionManagerSection />
+            </div>
+          </div>
+        )}
+
+        {settingsTab === 'privacy' && (
+          <div className="space-y-6">
+            {/* 5.3 — dnevni login streak */}
+            <LoginStreakCard />
+            {/* 2.11.0 — mejl kanal + push: ovde korisnik odlučuje ŠTA i KAKO ga obaveštava */}
+            <div className="border-t border-[var(--color-border-subtle)] pt-5">
+              <NotificationEmailSection />
+            </div>
+            <div className="border-t border-[var(--color-border-subtle)] pt-5">
+              <PushNotificationsSection />
+            </div>
+            {/* 6.x — tiši sati + tipovi za koje uređaj ne zvoni (inbox ostaje) */}
+            <div className="border-t border-[var(--color-border-subtle)] pt-5">
+              <QuietHoursSection />
+            </div>
+            {/* F-09 — izvoz podataka i brisanje naloga (GDPR/ZZPL) */}
+            <div className="border-t border-[var(--color-border-subtle)] pt-5">
+              <AccountPrivacySection onLogout={handleAccountDeleted} />
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );

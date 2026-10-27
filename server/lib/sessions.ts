@@ -22,8 +22,33 @@ import { logger } from './logger.js';
 
 export const ACCESS_COOKIE = 'nx_at';
 export const REFRESH_COOKIE = 'nx_rt';
+/**
+ * N-01 — `nx_sid` je JAVNI marker sesije (bez ikakve tajne, nije HttpOnly):
+ * klijent iz njega zna da postoji sesija, pa ne zove `/auth/me` na svakom
+ * otvaranju stranice niti pravi refresh za gosta. Sesiju i dalje proverava
+ * server (access cookie + refresh rotacija), a marker se briše uz sesiju.
+ */
+export const SESSION_HINT_COOKIE = 'nx_sid';
 export const CSRF_COOKIE = 'nx_csrf';
 export const CSRF_HEADER = 'x-csrf-token';
+
+/**
+ * Rute koje otvaraju sesiju — jedine koje se pozivaju PRE nego što klijent ima
+ * `nx_csrf` token te sesije.
+ *
+ * Za njih double-submit nema šta da duplira: token se izdaje upravo u odgovoru.
+ * Napad „login CSRF“ (napadač prijavi žrtvu na svoj nalog) pokriva strog CORS +
+ * 403 za nedozvoljen `Origin`; bez ovog izuzetka običan browser koji je poslao
+ * samo `nx_at`/`nx_rt` posle restarta nije mogao da se prijavi iako je lozinka
+ * tačna (403 „CSRF provera nije prošla“).
+ */
+// `req.path` u middleware-u montiranom na `/api/` je VEĆ bez prefiksa (npr.
+// `/auth/login`), dok testovi koji ga zovu direktno mogu da pošalju punu putanju —
+// zato se poredi i sa i bez `/api`.
+const SESSION_ENTRY_ROUTES = ['/auth/login', '/auth/register', '/auth/2fa/login'];
+export function isSessionEntryPath(path: string): boolean {
+  return SESSION_ENTRY_ROUTES.some((route) => path === route || path === `/api${route}`);
+}
 
 /** Kratkotrajni access token; klijent ga tiho obnavlja refresh-om. */
 export const ACCESS_TOKEN_TTL = '15m';
@@ -43,6 +68,8 @@ export interface RefreshSessionRecord {
   rotatedAt?: string | null;
   revokedAt?: string | null;
   revokedReason?: string | null;
+  /** 5.1 — prisutan kada red dolazi iz `listActiveForUser` (nikad se ne šalje klijentu). */
+  tokenHash?: string;
 }
 
 export interface RefreshSessionRepo {
@@ -54,6 +81,14 @@ export interface RefreshSessionRepo {
   revoke(id: string, reason: string): Promise<void>;
   revokeFamily(familyId: string, reason: string): Promise<void>;
   revokeAllForUser(userId: string, reason: string): Promise<void>;
+  /**
+   * 5.1 — aktivne sesije korisnika (najnovija prvo). Vraća po jedan red po
+   * porodici (samo „glava“ lanca rotacije), jer rotacija ostavlja istorijske
+   * redove koji nisu žive sesije.
+   */
+  listActiveForUser(userId: string): Promise<RefreshSessionRecord[]>;
+  /** 5.1 — poništi jednu porodicu, ali samo ako pripada korisniku. */
+  revokeFamilyForUser(userId: string, familyId: string, reason: string): Promise<boolean>;
   deleteExpired(now: string): Promise<number>;
 }
 
@@ -87,10 +122,25 @@ export function setSessionCookies(
     refreshToken: string;
     refreshExpiresAt: Date;
     csrfToken?: string;
+    /**
+     * Token koji je KLIJENT poslao u ovom zahtevu (`req.cookies.nx_csrf`).
+     *
+     * Ako nije zadržan, svaki poziv rotira `nx_csrf` — a klijent ga drži u
+     * JS memoriji (zaglavlje se čita pre `fetch`-a). Dovoljno je da dva zahteva
+     * stignu jedan posle drugog (npr. `/auth/refresh` pa `/auth/me` sa tiho
+     * rotiranim cookie-jem) pa da zaglavlje više ne odgovara cookie-ju → 403
+     * „CSRF provera nije prošla“. Zato se, kada je token već pristigao,
+     * zadržava isti (double-submit ne traži rotaciju na svakom odgovoru).
+     */
+    currentCsrfToken?: string | null;
   },
 ): string {
   const accessMaxAge = 15 * 60 * 1000;
-  const csrfToken = opts.csrfToken ?? randomToken(24);
+  // Prioritet: explicit > token iz ovog zahteva > novi (prva prijava).
+  const csrfToken =
+    opts.csrfToken ??
+    (opts.currentCsrfToken ? opts.currentCsrfToken : undefined) ??
+    randomToken(24);
 
   res.cookie(ACCESS_COOKIE, opts.accessToken, {
     ...baseCookie(),
@@ -114,6 +164,14 @@ export function setSessionCookies(
     maxAge: Math.max(opts.refreshExpiresAt.getTime() - Date.now(), accessMaxAge),
   });
 
+  // N-01 — javni marker sesije (bez ikakve tajne). Traje isto kao refresh sesija.
+  res.cookie(SESSION_HINT_COOKIE, '1', {
+    ...baseCookie(),
+    httpOnly: false,
+    path: '/',
+    expires: opts.refreshExpiresAt,
+  });
+
   return csrfToken;
 }
 
@@ -121,6 +179,7 @@ export function clearSessionCookies(res: Response): void {
   const shared = { ...baseCookie(), path: '/' };
   res.clearCookie(ACCESS_COOKIE, shared);
   res.clearCookie(CSRF_COOKIE, shared);
+  res.clearCookie(SESSION_HINT_COOKIE, shared);
   res.clearCookie(REFRESH_COOKIE, { ...baseCookie(), path: '/api/auth' });
 }
 
@@ -226,6 +285,40 @@ export async function revokeAllSessions(userId: string, reason = 'logout_all'): 
 }
 
 /**
+ * 5.1 — SESIJA KOJA JE POSLALA ZAHTEV.
+ * Cookie ne nosi ID sesije, ali hash refresh tokena identifikuje baš ovu
+ * porodicu. `null` znači da zahtev nije došao sa refresh cookie-jem (npr.
+ * klijent sa samo access tokenom) — tada ništa nije „trenutno“.
+ */
+export async function currentSessionId(req: Request): Promise<string | null> {
+  const token = (req.cookies?.[REFRESH_COOKIE] as string | undefined) ?? '';
+  if (!token) return null;
+  const record = await db.sessions.findByTokenHash(hashToken(token)).catch(() => null);
+  return record?.familyId ?? null;
+}
+
+/**
+ * 5.1 — lista aktivnih sesija korisnika za UI (profil → Sesije).
+ * Hash refresh tokena se nikad ne šalje klijentu; upoređuje se samo lokalno pa
+ * se javlja `current: true` za sesiju iz koje je zahtev došao.
+ */
+export async function listUserSessions(req: Request, userId: string) {
+  const sessions = await db.sessions.listActiveForUser(userId);
+  const token = (req.cookies?.[REFRESH_COOKIE] as string | undefined) ?? '';
+  const fingerprint = token ? hashToken(token) : null;
+
+  return sessions.map((session) => ({
+    id: session.familyId,
+    userAgent: session.userAgent,
+    ip: session.ip,
+    createdAt: session.createdAt,
+    lastUsedAt: session.lastUsedAt ?? null,
+    expiresAt: session.expiresAt,
+    current: Boolean(fingerprint && session.tokenHash === fingerprint),
+  }));
+}
+
+/**
  * CSRF provera (O-04): double-submit cookie.
  * Primenjuje se na state-changing zahteve koji se oslanjaju na cookie sesiju.
  * Zahtev bez ijdnog cookie-ja (čist Bearer klijent) nije ranjiv na CSRF.
@@ -234,8 +327,14 @@ export function csrfProtection(req: Request, res: Response, next: (err?: unknown
   const method = req.method.toUpperCase();
   if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return next();
 
+  // Prijava i registracija izdaju CSRF token — klijent ga pre poziva još nema.
+  if (isSessionEntryPath(req.path)) return next();
+
   const cookies = (req.cookies ?? {}) as Record<string, string | undefined>;
-  const usesCookies = Boolean(cookies[ACCESS_COOKIE] || cookies[REFRESH_COOKIE]);
+  // Samo ACCESS cookie (koji pokriva celo `Path=/`) znači „ovaj zahtev nosi
+  // sesiju“. Refresh cookie ide isključivo na `/api/auth` i klijent ga može
+  // ostaviti posle restarta — sam po sebi nije znak da treba duplirati token.
+  const usesCookies = Boolean(cookies[ACCESS_COOKIE]);
   if (!usesCookies) return next();
 
   const header = req.get(CSRF_HEADER) ?? '';

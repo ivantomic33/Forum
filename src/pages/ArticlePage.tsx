@@ -1,11 +1,14 @@
-﻿import { useParams, Link } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import { Clock, MessageSquare, Bookmark, Share2, Flame, ThumbsUp, Sparkles, Zap, Brain, Send, Eye, CheckCircle2, XCircle, Award } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '../lib/api';
 import { useSanitizedHtml } from '../lib/sanitizeHtml';
+import { embedifyHtml, hasEmbeds } from '../lib/embedify';
+import { MediaEmbed } from '../components/MediaEmbed';
 import { useAuthStore } from '../store/authStore';
-import { EmptyState, ErrorState, SkeletonRows } from '../components/ui';
+import { Badge, categoryTone, EmptyState, ErrorState, SkeletonRows } from '../components/ui';
+import { RichContentWithLightbox } from '../components/ui/ImageLightbox';
 import { VerifiedBadge } from '../components/ui/VerifiedBadge';
 
 const DEFAULT_ARTICLE = {
@@ -45,12 +48,13 @@ Phantom Liberty postavlja novi standard za Ray Tracing i Path Tracing vizuele na
 };
 
 import { usePageMeta, newsArticleJsonLd } from '../lib/pageMeta';
+import type { Article, ArticleComment, ArticleReactionType } from '../../contracts/index';
 
 export default function ArticlePage() {
   const { id } = useParams();
   const currentUser = useAuthStore((s) => s.user);
 
-  const [article, setArticle] = useState<any>(null);
+  const [article, setArticle] = useState<Article | null>(null);
   // Ranije je postojao lažni fallback članak sa izmišljenih 12.4k pregleda —
   // sada se prikazuje pošteno stanje (loading / 404 / greška).
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -67,7 +71,10 @@ export default function ArticlePage() {
     description: article?.excerpt || undefined,
     path: article?.slug ? `/article/${article.slug}` : id ? `/article/${id}` : '/',
     type: 'article',
-    image: article?.coverImage || undefined,
+    // N-13 — og:image 1200×630 sa servera (`/api/og/…`), ne sirovi cover (bilo koje proporcije).
+    image: article
+      ? `/api/og/article/cover?src=${encodeURIComponent(article.coverImage)}&title=${encodeURIComponent(article.title)}`
+      : undefined,
     publishedTime: article?.publishedAt ?? article?.createdAt,
     modifiedTime: article?.updatedAt,
     jsonLd: article
@@ -85,7 +92,7 @@ export default function ArticlePage() {
   });
 
   // Komentari dolaze sa servera (ranije su bila dva izmišljena komentara).
-  const [comments, setComments] = useState<any[]>([]);
+  const [comments, setComments] = useState<ArticleComment[]>([]);
   const [newCommentText, setNewCommentText] = useState('');
   const [commentsLoading, setCommentsLoading] = useState(false);
 
@@ -145,7 +152,7 @@ export default function ArticlePage() {
       api.articles
         .bookmarks()
         .then((res) => {
-          const ids = new Set((res.articles ?? []).map((item: any) => item.id));
+          const ids = new Set((res.articles ?? []).map((item) => item.id));
           setBookmarked(ids.has(article.id));
         })
         .catch(() => setBookmarked(false));
@@ -159,7 +166,7 @@ export default function ArticlePage() {
     }
   }, [article?.id, currentUser]);
 
-  const handleReaction = async (type: 'like' | 'gg' | 'hype' | 'fire' | 'mind_blown') => {
+  const handleReaction = async (type: ArticleReactionType) => {
     if (!article?.id) return;
     if (!currentUser) {
       toast.error('Prijavite se da biste reagovali.');
@@ -278,22 +285,49 @@ export default function ArticlePage() {
         <nav className="crumbs mb-8" aria-label="Putanja">
           <Link to="/">Portal</Link>
           <span className="sep" aria-hidden="true">/</span>
-          <span className="font-mono text-[11px] uppercase tracking-[0.08em] text-cyan-400">
+          <Badge tone={categoryTone(article.category)} className="font-mono uppercase tracking-[0.08em]">
             {article.category}
-          </span>
+          </Badge>
+          {article.newsSource ? (
+            <>
+              <span className="sep" aria-hidden="true">
+                /
+              </span>
+              <span className="text-white/50">Izvor: {article.newsSource}</span>
+            </>
+          ) : null}
         </nav>
 
         <article>
           {/* Article Header — editorial */}
           <header className="mb-9">
+            {/* 2.13.0 — vest o događaju koji se razvija (više vesti = vremenska linija) */}
+            {article.eventId ? (
+              <Link
+                to={`/event/${article.eventId}`}
+                className="mb-4 inline-flex items-center gap-2 rounded-full border border-amber-400/30 bg-amber-400/10 px-3 py-1 font-mono text-[11px] uppercase tracking-[0.08em] text-amber-200 transition hover:border-amber-300/60 hover:bg-amber-400/15"
+              >
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-300" aria-hidden="true" />
+                Priča se razvija{article.eventTitle ? `: ${article.eventTitle}` : ''}
+              </Link>
+            ) : null}
+
             <h1 className="mb-5 font-display text-[1.875rem] font-semibold leading-[1.08] tracking-[-0.035em] text-white sm:text-[2.5rem]">
               {article.title}
             </h1>
 
+            {/* 2.13.0 — kratko „zašto je bitno“ (generisano pri uvozu, opciono) */}
+            {article.whyItMatters ? (
+              <p className="mb-5 border-l-2 border-violet-400/60 pl-3 text-sm leading-relaxed text-white/65">
+                <span className="font-mono text-[11px] uppercase tracking-[0.08em] text-violet-300">Zašto je bitno · </span>
+                {article.whyItMatters}
+              </p>
+            ) : null}
+
             <div className="flex flex-wrap items-center justify-between gap-5 border-y border-white/[0.07] py-4">
               <div className="flex items-center gap-3">
                 <img
-                  src={article.authorAvatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${article.author}`}
+                  src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${article.author}`}
                   alt={article.author}
                   className="h-10 w-10 rounded-full border border-white/15 bg-surface-0"
                 />
@@ -315,24 +349,26 @@ export default function ArticlePage() {
           </header>
 
           {/* Featured Image */}
-          {article.coverImage || article.image ? (
+          {article.coverImage ? (
             <figure className="mb-9 overflow-hidden rounded-2xl border border-white/[0.08] bg-surface-0 shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
               <img
-                src={article.coverImage || article.image}
+                src={article.coverImage}
                 alt={article.title}
                 className="aspect-[16/9] w-full object-cover"
               />
             </figure>
           ) : null}
 
-          {/* Content — HTML sadržaj iz CMS-a renderuje se samo posle DOMPurify sanitizacije */}
-          <div className="article-rich-content text-[16px] leading-[1.72] text-white/80 sm:text-[17px]">
-            <div dangerouslySetInnerHTML={{ __html: safeContent }} />
-          </div>
+          {/* Content — HTML sadržaj iz CMS-a renderuje se samo posle DOMPurify sanitizacije;
+              F-LB — klik na sliku otvara Lightbox; F-7 — standalone media linkovi postaju embed. */}
+          <EmbeddedArticleContent
+            html={safeContent}
+            className="article-rich-content text-[16px] leading-[1.72] text-white/80 sm:text-[17px]"
+          />
 
           {/* IGN-Style Review Scorecard */}
           {article.reviewScorecard && (article.reviewScorecard.score !== undefined || article.reviewScorecard.verdict) && (
-            <div className="mt-12 overflow-hidden rounded-2xl border border-white/[0.1] bg-[#0D101D]/80 shadow-[0_8px_32px_rgba(0,0,0,0.45)] backdrop-blur-md">
+            <div className="mt-12 overflow-hidden rounded-2xl border-[var(--color-border-default)] bg-[var(--color-surface-1)] shadow-[0_8px_32px_rgba(0,0,0,0.45)]">
               <div className="border-b border-white/10 bg-gradient-to-r from-violet-600/15 via-transparent to-cyan-500/10 p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-violet-500/15 text-cyan-300 border border-violet-500/35 shadow-[0_0_18px_-6px_rgba(124,58,237,0.8)]">
@@ -464,7 +500,7 @@ export default function ArticlePage() {
                 <button
                   type="button"
                   onClick={toggleBookmark}
-                  className={`ui-icon-btn ${bookmarked ? '!border-cyan-400/40 !bg-cyan-500/10 !text-cyan-300' : ''}`}
+                  className={`ui-icon-btn ${bookmarked ? '!border-[var(--color-border-strong)] !bg-[var(--color-surface-4)] !text-[var(--color-primary-fg)]' : ''}`}
                   title={bookmarked ? 'Sačuvano' : 'Sačuvaj'}
                   aria-label={bookmarked ? 'Ukloni članak iz sačuvanih' : 'Sačuvaj članak'}
                   aria-pressed={bookmarked}
@@ -498,7 +534,7 @@ export default function ArticlePage() {
           </div>
 
           {/* Add comment form */}
-          <form onSubmit={handleAddComment} className="mb-6 rounded-2xl border border-white/[0.08] bg-[#0D101D]/75 p-4 backdrop-blur-md">
+          <form onSubmit={handleAddComment} className="mb-6 rounded-2xl border-[var(--color-border-subtle)] bg-[var(--color-surface-1)] p-4">
             <textarea
               value={newCommentText}
               onChange={(e) => setNewCommentText(e.target.value)}
@@ -529,7 +565,7 @@ export default function ArticlePage() {
               </div>
             ) : (
               comments.map((com) => (
-                <div key={com.id} className="flex items-start gap-3.5 rounded-2xl border border-white/[0.07] bg-[#0D101D]/70 p-4 backdrop-blur-md transition-all duration-300 hover:-translate-y-0.5 hover:border-cyan-500/30 hover:shadow-[0_12px_30px_-10px_rgba(6,182,212,0.25)]">
+                <div key={com.id} className="flex items-start gap-3.5 rounded-2xl border-[var(--color-border-subtle)] bg-[var(--color-surface-1)] p-4 transition-all duration-300 hover:-translate-y-0.5 hover:border-[var(--color-border-strong)]">
                   <img
                     src={com.authorAvatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(com.author || 'user')}`}
                     alt=""
@@ -607,12 +643,46 @@ function markdownToHtml(raw: string): string {
 
 function CommentBody({ html }: { html: string }) {
   // Komentari su rich text (sanitizovani na serveru) — DOMPurify je druga linija odbrane.
+  // F-7 — standalone whitelist linkovi postaju embed, ostalo ostaje HTML.
   const safe = useSanitizedHtml(html);
+  const segments = embedifyHtml(safe);
+  if (!hasEmbeds(segments)) {
+    return (
+      <div
+        className="article-rich-content break-words text-[13.5px] leading-relaxed text-white/70"
+        dangerouslySetInnerHTML={{ __html: safe }}
+      />
+    );
+  }
   return (
-    <div
-      className="article-rich-content break-words text-[13.5px] leading-relaxed text-white/70"
-      dangerouslySetInnerHTML={{ __html: safe }}
-    />
+    <div className="article-rich-content break-words text-[13.5px] leading-relaxed text-white/70">
+      {segments.map((segment, index) =>
+        segment.type === 'embed' ? (
+          <MediaEmbed key={`embed-${index}`} media={segment.media} />
+        ) : (
+          <div key={`html-${index}`} dangerouslySetInnerHTML={{ __html: segment.html }} />
+        ),
+      )}
+    </div>
+  );
+}
+
+/** Članak: RichContentWithLightbox + F-7 embed prepoznavanje. */
+function EmbeddedArticleContent({ html, className }: { html: string; className?: string }) {
+  const segments = embedifyHtml(html);
+  if (!hasEmbeds(segments)) {
+    return <RichContentWithLightbox html={html} className={className} />;
+  }
+  return (
+    <div className={className}>
+      {segments.map((segment, index) =>
+        segment.type === 'embed' ? (
+          <MediaEmbed key={`embed-${index}`} media={segment.media} />
+        ) : (
+          <RichContentWithLightbox key={`html-${index}`} html={segment.html} className="" />
+        ),
+      )}
+    </div>
   );
 }
 
@@ -649,7 +719,7 @@ function ReactionButton({
       className={`reaction-btn inline-flex min-h-[40px] items-center gap-2 rounded-full border px-3.5 py-2 text-[13px] font-medium backdrop-blur-sm ${
         active
           ? styles.active
-          : 'border-violet-500/20 bg-[#0D101D]/80 text-slate-300 hover:border-cyan-500/40 hover:bg-cyan-500/[0.08] hover:text-white'
+          : 'border-[var(--color-border-subtle)] bg-[var(--color-surface-1)] text-[var(--color-text-secondary)] hover:border-[var(--color-border-strong)] hover:text-[var(--color-text-primary)]'
       }`}
     >
       <span className={active ? 'drop-shadow-[0_0_6px_rgba(124,58,237,0.6)]' : styles.idle}>{icon}</span>

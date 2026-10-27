@@ -12,11 +12,15 @@ import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import QRCode from 'qrcode';
 import { generate, verify, generateSecret, generateURI } from 'otplib';
-import { db } from './store.js';
+import { db, type UserRecord } from './store.js';
+import { logger } from './logger.js';
+import { markSignedIn } from './presence.js';
+import { isSharedFallbackError, sharedClient, sharedKey, sha256, warnSharedOnce, withLock } from './sharedStore.js';
 
 const ISSUER = 'NEXUS';
 const RECOVERY_CODE_COUNT = 10;
-const RECOVERY_BCRYPT_COST = 10;
+// B22 — recovery kodovi: cost 10 (test: 4, kao lozinke).
+const RECOVERY_BCRYPT_COST = process.env.NODE_ENV === 'test' ? 4 : 10;
 
 /** Maksimalno neuspelih TOTP pokušaja pre privremenog zaključavanja. */
 export const TOTP_MAX_FAILED = 5;
@@ -130,20 +134,22 @@ export async function matchRecoveryCode(rawCode: unknown, hashes: string[]): Pro
 // PENDING ENROLLMENT
 // =====================
 /**
- * Tajna tokom uključivanja (setup) čeka potvrdu prvog koda. Čuva se u memoriji
- * procesa — do 10 minuta. Server restart samo poništi nedovršeno uključivanje;
- * potvrđena 2FA živi u bazi.
+ * N-09 — tajna tokom uključivanja čeka potvrdu prvog koda i čuva se u tabeli
+ * `totp_pending` (user_id, TTL 10 min), kao `secret_hash` (SHA-256) i
+ * `secret_enc` (isti AES-GCM kao `users.totp_secret`).
+ *
+ * Ranije je `Map` živeo u procesu: sa 2 instance `/2fa/setup` na jednoj a
+ * `/2fa/enable` na drugoj = „2FA nije pravilno podešena“. Memorija je ostala
+ * samo za demo/test režim.
+ *
+ * Trošenje je uvek atomično — `consume_totp_enrollment` radi `DELETE` sa
+ * `RETURNING`, pa dva paralelna `enable` poziva ne mogu oba da prođu.
  */
 const pending = new Map<string, { secret: string; createdAt: number }>();
 const PENDING_TTL_MS = 10 * 60 * 1000;
+const PENDING_TTL_SECONDS = Math.floor(PENDING_TTL_MS / 1000);
 
-export function startEnrollment(userId: string): string {
-  const secret = createTotpSecret();
-  pending.set(userId, { secret, createdAt: Date.now() });
-  return secret;
-}
-
-export function pendingSecret(userId: string): string | null {
+function pendingFromMemory(userId: string): string | null {
   const entry = pending.get(userId);
   if (!entry) return null;
   if (Date.now() - entry.createdAt > PENDING_TTL_MS) {
@@ -153,8 +159,101 @@ export function pendingSecret(userId: string): string | null {
   return entry.secret;
 }
 
-export function clearEnrollment(userId: string): void {
+/**
+ * Sačuvaj novu pending tajnu.
+ *
+ * `ON CONFLICT (user_id) DO UPDATE` preko kratkog `select`+`upsert` pod
+ * `withLock`-om (jedan korisnik ne može da ima dva setup-a u istom procesu).
+ * Greška u bazi ne blokira setup — upozori jednom i koristi memoriju.
+ */
+export async function startEnrollment(userId: string): Promise<string> {
+  const secret = createTotpSecret();
+
+  await withLock(sharedKey('totp_pending', userId), async () => {
+    const client = sharedClient();
+    if (client) {
+      const { error } = await client
+        .from('totp_pending')
+        .upsert(
+          {
+            user_id: userId,
+            secret_hash: sha256(secret),
+            secret_enc: encryptSecret(secret),
+            created_at: new Date().toISOString(),
+          },
+          { onConflict: 'user_id' },
+        );
+
+      if (!error) return;
+      if (!isSharedFallbackError(error)) logger.error({ err: error, userId }, 'totp_pending_write_failed');
+      else warnSharedOnce('totp_pending_write', error);
+    }
+
+    pending.set(userId, { secret, createdAt: Date.now() });
+  });
+
+  return secret;
+}
+
+/** Nepotrošena provera (npr. za poruku „setup istekao“ pre nego što se potroši). */
+export async function pendingSecret(userId: string): Promise<string | null> {
+  const client = sharedClient();
+  if (client) {
+    const { data, error } = await client.rpc('peek_totp_enrollment', {
+      p_user_id: userId,
+      p_ttl_seconds: PENDING_TTL_SECONDS,
+    });
+    const row = !error && Array.isArray(data) ? data[0] : null;
+    if (row?.secret_enc) return decryptSecret(row.secret_enc);
+
+    if (error && !isSharedFallbackError(error)) logger.error({ err: error, userId }, 'totp_pending_peek_failed');
+    else if (error) warnSharedOnce('totp_pending_peek', error);
+  }
+  return pendingFromMemory(userId);
+}
+
+/**
+ * Potvrđivanje prvog koda troši enrollment. `secret_hash` je zaštita od TOCTOU:
+ * tajna iz `startEnrollment` mora da bude ista ona nad kojom je kod proveren.
+ */
+export async function consumeEnrollment(userId: string, secret: string): Promise<boolean> {
+  return withLock(sharedKey('totp_pending', userId), async () => {
+    const client = sharedClient();
+    if (client) {
+      const { data, error } = await client.rpc('consume_totp_enrollment', {
+        p_user_id: userId,
+        p_ttl_seconds: PENDING_TTL_SECONDS,
+      });
+      const row = !error && Array.isArray(data) ? data[0] : null;
+      if (row) {
+        const stored = decryptSecret(row.secret_enc);
+        const sameSecret = stored === secret;
+        // Nepoklopljena tajna je ipak potrošena — setup se prekida, ne ponavlja.
+        if (!sameSecret) logger.warn({ userId }, 'totp_enrollment_secret_mismatch');
+        return sameSecret;
+      }
+
+      if (error && !isSharedFallbackError(error)) logger.error({ err: error, userId }, 'totp_pending_consume_failed');
+      else if (error) warnSharedOnce('totp_pending_consume', error);
+    }
+
+    const remembered = pendingFromMemory(userId);
+    pending.delete(userId);
+    return remembered !== null && remembered === secret;
+  });
+}
+
+export async function clearEnrollment(userId: string): Promise<void> {
   pending.delete(userId);
+
+  const client = sharedClient();
+  if (!client) return;
+  try {
+    const { error } = await client.from('totp_pending').delete().eq('user_id', userId);
+    if (error) warnSharedOnce('totp_pending_clear', error);
+  } catch (err) {
+    warnSharedOnce('totp_pending_clear', err);
+  }
 }
 
 // =====================

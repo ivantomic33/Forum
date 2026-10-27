@@ -1,18 +1,22 @@
 ﻿import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
-  ArrowDown, ArrowUp, Bell, Bookmark, Lock, MessageSquare, Pin, Reply, Send, Share2,
-  ShieldAlert, Trash2,
+  ArrowDown, ArrowUp, Bell, Bookmark, CheckCircle2, Lock, Mail, MessageSquare, Pencil, Pin, Reply, Send, Share2,
+  ShieldAlert, Trash2, X,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { api, type PollResult } from '../lib/api';
+import { DraftRecoveryBanner, DraftStatusIndicator, useFormDraft } from '../lib/useFormDraft.tsx';
 import { useSanitizedHtml } from '../lib/sanitizeHtml';
+import { embedifyHtml, hasEmbeds } from '../lib/embedify';
+import { MediaEmbed } from '../components/MediaEmbed';
 import { useAuthStore } from '../store/authStore';
 import PollWidget from '../components/forum/PollWidget';
 import { ReportButton } from '../components/ReportButton';
 import { RoleEmblem } from '../components/profile/RoleEmblem';
 import { Badge, Button, EmptyState, ErrorState, OnlineAvatar, SkeletonRows } from '../components/ui';
 import { VerifiedBadge } from '../components/ui/VerifiedBadge';
+import { RichContentWithLightbox } from '../components/ui/ImageLightbox';
 
 interface Comment {
   id: string;
@@ -29,6 +33,13 @@ interface Comment {
   karma: number;
   isSpoiler?: boolean;
   createdAt: string;
+  /** F-EDIT — `(izmenjeno)` oznaka; server je postavlja pri PUT thread/reply. */
+  isEdited?: boolean;
+  /**
+   * 2.11.0 — ovaj odgovor je prihvaćeno rešenje teme.
+   * Server ga šalje kao `acceptedReplyId` na TEMI; `ThreadPage` ga propagira dole.
+   */
+  isAccepted?: boolean;
   replies?: Comment[];
 }
 
@@ -40,6 +51,32 @@ type LoadState =
 
 function isNotFound(message: string) {
   return /nije pronađena|not found|404/i.test(message);
+}
+
+/**
+ * F-EDIT — helperi za inline edit
+ * ------------------------------
+ * Server cuva sanitizovani HTML, a edit forma je obican textarea. Ova dva cista
+ * helpera moste HTML <-> cist tekst:
+ *  - `htmlToPlainText` — DOM parser (browser ga vec ima) — bez regex fragilnosti;
+ *  - `textToParagraphHtml` — svaki neprazan red -> `<p>...</p>`. Server sanitizuje
+ *    kroz `sanitizeRichText`, pa je opasni HTML svejedno odbijen (odbrana u dubini).
+ */
+export function htmlToPlainText(html: string): string {
+  const div = document.createElement('div');
+  div.innerHTML = html;
+  // `<p>`/`<br>` prelaze u nove redove da tekst ne ostaje „slepljen“.
+  div.querySelectorAll('p, br, li, blockquote').forEach((el) => el.insertAdjacentText('afterend', '\n'));
+  return (div.textContent ?? '').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+export function textToParagraphHtml(text: string): string {
+  return text
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => `<p>${line}</p>`)
+    .join('');
 }
 
 function buildCommentTree(rawReplies: any[]): Comment[] {
@@ -59,6 +96,7 @@ function buildCommentTree(rawReplies: any[]): Comment[] {
       content: r.content,
       karma: r.karma || 0,
       isSpoiler: r.isSpoiler,
+      isEdited: r.isEdited === true,
       createdAt: r.createdAt ? new Date(r.createdAt).toLocaleTimeString('sr-Latn-RS', { hour: '2-digit', minute: '2-digit' }) : 'Upravo',
       replies: [],
     };
@@ -82,6 +120,9 @@ function CommentItem({
   onReplySubmitted,
   onVote,
   onDelete,
+  onEdited,
+  canAccept,
+  onAccept,
 }: {
   comment: Comment;
   depth?: number;
@@ -89,6 +130,12 @@ function CommentItem({
   onReplySubmitted: (parentId: string, text: string) => Promise<void>;
   onVote: (id: string, dir: 'up' | 'down' | null) => Promise<number | null>;
   onDelete: (id: string) => void;
+  /** F-EDIT — poziva se posle uspešnog čuvanja (roditelj refetchuje). */
+  onEdited?: () => Promise<void>;
+  /** 2.11.0 — da li ulogovani korisnik SME da označi rešenje (autor teme ili staff). */
+  canAccept?: boolean;
+  /** 2.11.0 — `replyId` za prihvatanje, `'none'` za odznačavanje. */
+  onAccept?: (replyId: string | 'none') => Promise<void>;
 }) {
   const currentUser = useAuthStore((s) => s.user);
   const [voted, setVoted] = useState<'up' | 'down' | null>(null);
@@ -96,6 +143,12 @@ function CommentItem({
   const [showReply, setShowReply] = useState(false);
   const [replyText, setReplyText] = useState('');
   const [revealed, setRevealed] = useState(!comment.isSpoiler);
+
+  // F-EDIT — inline izmena sopstvenog odgovora (server postavlja isEdited).
+  const [editing, setEditing] = useState(false);
+  const [editText, setEditText] = useState('');
+  const [saving, setSaving] = useState(false);
+  const editRef = useRef<HTMLTextAreaElement>(null);
 
   const isOwn = Boolean(currentUser && comment.authorId && currentUser.id === comment.authorId);
   const safeContent = useSanitizedHtml(comment.content ?? '');
@@ -117,6 +170,46 @@ function CommentItem({
     await onReplySubmitted(comment.id, replyText.trim());
     setReplyText('');
     setShowReply(false);
+  };
+
+  /** F-EDIT — otvara edit formu sa ČISTIM tekstom (content je sanitizovani HTML). */
+  const startEdit = () => {
+    setEditText(htmlToPlainText(comment.content ?? ''));
+    setEditing(true);
+    requestAnimationFrame(() => editRef.current?.focus());
+  };
+
+  const cancelEdit = () => {
+    setEditing(false);
+    setEditText('');
+  };
+
+  const saveEdit = async () => {
+    const text = editText.trim();
+    if (!text || saving) return;
+    setSaving(true);
+    try {
+      await api.forum.updateReply(comment.id, { content: textToParagraphHtml(text) });
+      toast.success('Odgovor je izmenjen.');
+      setEditing(false);
+      setEditText('');
+      await onEdited?.();
+    } catch (error: any) {
+      toast.error(error?.message || 'Izmena nije uspela. Pokusaj ponovo.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /** Escape otkazuje, Ctrl/Cmd+Enter cuva. */
+  const onEditKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      cancelEdit();
+    } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      void saveEdit();
+    }
   };
 
   return (
@@ -171,6 +264,11 @@ function CommentItem({
               </Badge>
             ) : null}
             <span className="meta-time">{comment.createdAt}</span>
+            {comment.isEdited && (
+              <Badge tone="neutral" className="!normal-case !text-[11px]">
+                izmenjeno
+              </Badge>
+            )}
             {comment.isSpoiler && (
               <Badge tone="error">
                 <ShieldAlert size={11} /> Spoiler
@@ -178,7 +276,39 @@ function CommentItem({
             )}
           </div>
 
-          {comment.isSpoiler && !revealed ? (
+          {editing ? (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void saveEdit();
+              }}
+              className="mb-2 animate-fade-in rounded-xl border border-cyan-400/30 bg-surface-2/80 p-3 backdrop-blur-sm"
+            >
+              <textarea
+                ref={editRef}
+                value={editText}
+                onChange={(e) => setEditText(e.target.value)}
+                onKeyDown={onEditKeyDown}
+                className="ui-field resize-none !text-[13px]"
+                rows={Math.min(10, Math.max(3, editText.split('\n').length + 1))}
+                aria-label="Izmena odgovora"
+              />
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                <span className="hidden font-mono text-[10px] uppercase tracking-[0.08em] text-white/35 sm:inline">
+                  Ctrl+Enter → sačuvaj · Esc → odustani
+                </span>
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={cancelEdit} className="ui-btn br-ghost ui-btn-sm" disabled={saving}>
+                    <X size={13} /> Otkaži
+                  </button>
+                  <button type="submit" className="ui-btn br-primary ui-btn-sm" disabled={saving || !editText.trim()}>
+                    <Send size={13} />
+                    {saving ? 'Čuvanje…' : 'Sačuvaj izmene'}
+                  </button>
+                </div>
+              </div>
+            </form>
+          ) : comment.isSpoiler && !revealed ? (
             <button
               type="button"
               onClick={() => setRevealed(true)}
@@ -212,6 +342,40 @@ function CommentItem({
                 <Trash2 size={13} />
                 Obriši
               </button>
+            )}
+            {(canModerate || isOwn) && !editing && (
+              <button
+                type="button"
+                onClick={startEdit}
+                className="flex min-h-[32px] items-center gap-1.5 rounded px-1.5 transition hover:bg-cyan-500/10 hover:text-cyan-300"
+              >
+                <Pencil size={13} />
+                Izmeni
+              </button>
+            )}
+            {/* 2.11.0 — „Prihvati kao rešenje“. Vidi ga samo autor teme (ili staff)
+                i to na odgovoru koji nije njegov — sopstveni odgovor nije „rešenje“. */}
+            {canAccept && !isOwn && onAccept && !editing && (
+              comment.isAccepted ? (
+                <button
+                  type="button"
+                  onClick={() => void onAccept('none')}
+                  className="flex min-h-[32px] items-center gap-1.5 rounded px-1.5 font-medium text-[var(--color-success)] transition hover:bg-[var(--color-success)]/10"
+                  title="Ukloni oznaku rešenja"
+                >
+                  <CheckCircle2 size={13} />
+                  Rešenje
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void onAccept(comment.id)}
+                  className="flex min-h-[32px] items-center gap-1.5 rounded px-1.5 transition hover:bg-[var(--color-success)]/10 hover:text-[var(--color-success)]"
+                >
+                  <CheckCircle2 size={13} />
+                  Prihvati kao rešenje
+                </button>
+              )
             )}
             <ReportButton targetType="reply" targetId={comment.id} label="Prijavi" />
           </div>
@@ -254,6 +418,7 @@ function CommentItem({
                   onReplySubmitted={onReplySubmitted}
                   onVote={onVote}
                   onDelete={onDelete}
+                  onEdited={onEdited}
                 />
               ))}
             </div>
@@ -280,8 +445,30 @@ export default function ThreadPage() {
   const [newCommentSpoiler, setNewCommentSpoiler] = useState(false);
   const [moderating, setModerating] = useState(false);
 
+  // F-EDIT2 — autosave drafta odgovora (po temi; različite teme ne gaze jedne druge).
+  const replyDraft = useFormDraft(
+    `nexus_forum_draft_reply_${id ?? 'unknown'}`,
+    { content: newCommentText, isSpoiler: newCommentSpoiler },
+    (draft) => {
+      setNewCommentText(String(draft.content ?? ''));
+      setNewCommentSpoiler(Boolean(draft.isSpoiler));
+    },
+  );
+
+  // F-EDIT — inline izmena teme (naslov + sadržaj); dugme vidi autor ili moderacija.
+  const [editingThread, setEditingThread] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
+  const [editContent, setEditContent] = useState('');
+  const [savingThread, setSavingThread] = useState(false);
+
   const thread = state.status === 'ready' ? state.thread : null;
   const canModerate = currentUser?.role === 'admin' || currentUser?.role === 'moderator';
+  const acceptedId: string | null =
+    state.status === 'ready' ? ((state.thread as any).acceptedReplyId ?? null) : null;
+  /** F-EDIT — dugme „Izmeni“ vidi autor teme ili moderacija (server dozvoljava isto). */
+  const isOwnThread = Boolean(currentUser && thread?.authorId && currentUser.id === thread.authorId);
+  /** 2.11.0 — „Prihvati kao rešenje“: autor teme ili staff (server proverava isto). */
+  const canAccept = isOwnThread || canModerate;
 
   // F-19 — meta za deljenje i indeksaciju teme (obrisana tema ostaje noindex).
   usePageMeta({
@@ -317,10 +504,12 @@ export default function ThreadPage() {
         return;
       }
       setKarma(Number(res.thread.karma) || 0);
+      // 2.11.0 — server daje `acceptedReplyId` na temi; spuštamo oznaku do kartice.
+      const acceptedId = (res.thread as any).acceptedReplyId ?? null;
       setState({
         status: 'ready',
         thread: res.thread,
-        replies: buildCommentTree(res.replies ?? []),
+        replies: markAccepted(buildCommentTree(res.replies ?? []), acceptedId),
         poll: res.poll ?? null,
       });
     } catch (error: any) {
@@ -345,6 +534,15 @@ export default function ThreadPage() {
       .isFollowingThread(id)
       .then((res) => setFollowing(Boolean(res.following)))
       .catch(() => setFollowing(false));
+
+    // Stari mejlovi su vodili na `?unfollow=1` (gasi mejl za temu). Mejl o
+    // odgovorima više ne postoji, pa link samo skloni parametar i objasni stanje.
+    if (new URLSearchParams(window.location.search).get('unfollow') === '1') {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('unfollow');
+      window.history.replaceState({}, '', url.toString());
+      toast.info('Mejl o novim odgovorima se više ne šalje — notifikacije stižu u aplikaciji.');
+    }
   }, [id, currentUser]);
 
   const handleThreadVote = async (dir: 'up' | 'down') => {
@@ -394,6 +592,7 @@ export default function ThreadPage() {
       });
       setNewCommentText('');
       setNewCommentSpoiler(false);
+      replyDraft.clear(); // F-EDIT2 — draft se briše TEK po uspešnom slanju odgovora.
       await loadThread();
     } catch (err: any) {
       toast.error(err?.message || 'Greška pri objavljivanju odgovora.');
@@ -421,6 +620,28 @@ export default function ThreadPage() {
     }
   };
 
+  /**
+   * 2.11.0 — označi/odznači prihvaćen odgovor. Server je izvor istine: posle
+   * akcije se tema ponovo učitava da se vidi tačno stanje (i eventualna greška
+   * je već vraćena sa porukom, pa je toast dovoljan).
+   */
+  const handleAccept = async (replyId: string | 'none') => {
+    if (!thread) return;
+    try {
+      const result = await api.forum.acceptAnswer(thread.id, replyId);
+      toast.success(
+        replyId === 'none'
+          ? 'Oznaka rešenja je uklonjena.'
+          : result.awardedXp
+            ? `Odgovor je prihvaćen. Autor dobija ${result.awardedXp} XP.`
+            : 'Odgovor je označen kao rešenje.',
+      );
+      await loadThread();
+    } catch (err: any) {
+      toast.error(err?.message || 'Označavanje rešenja nije uspelo.');
+    }
+  };
+
   const handleModerate = async (
     payload: { isPinned?: boolean; isLocked?: boolean; deleteThread?: boolean },
     message: string,
@@ -436,6 +657,42 @@ export default function ThreadPage() {
       toast.error(err?.message || 'Moderacija nije uspela.');
     } finally {
       setModerating(false);
+    }
+  };
+
+  /** F-EDIT — čuvanje izmene teme preko postojećeg api.forum.updateThread. */
+  const saveThreadEdit = async () => {
+    if (!thread || savingThread) return;
+    const title = editTitle.trim();
+    const content = editContent.trim();
+    if (!title || !content) return;
+    setSavingThread(true);
+    try {
+      await api.forum.updateThread(thread.id, { title, content: textToParagraphHtml(content) });
+      toast.success('Tema je izmenjena.');
+      setEditingThread(false);
+      await loadThread();
+    } catch (error: any) {
+      toast.error(error?.message || 'Izmena teme nije uspela. Pokusaj ponovo.');
+    } finally {
+      setSavingThread(false);
+    }
+  };
+
+  const startThreadEdit = () => {
+    setEditTitle(thread.title);
+    setEditContent(htmlToPlainText(thread.content ?? ''));
+    setEditingThread(true);
+  };
+
+  /** Escape otkazuje, Ctrl/Cmd+Enter cuva. */
+  const onThreadEditKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      setEditingThread(false);
+    } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      void saveThreadEdit();
     }
   };
 
@@ -540,23 +797,97 @@ export default function ThreadPage() {
 
             {/* Content */}
             <div className="min-w-0 flex-1">
-              <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-                <h1 className="font-display text-[1.625rem] font-semibold leading-[1.15] tracking-[-0.025em] text-white sm:text-3xl">
-                  {thread.title}
-                </h1>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {thread.isPinned && (
-                    <Badge tone="warning">
-                      <Pin size={11} /> Fiksirano
-                    </Badge>
-                  )}
-                  {isLocked && (
-                    <Badge tone="error">
-                      <Lock size={11} /> Zaključano
-                    </Badge>
-                  )}
-                </div>
-              </div>
+              {editingThread ? (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void saveThreadEdit();
+                  }}
+                  className="mb-4 space-y-3 animate-fade-in"
+                >
+                  <div>
+                    <label htmlFor="edit-thread-title" className="mb-1 block text-sm font-semibold text-white/85">
+                      Naslov teme
+                    </label>
+                    <input
+                      id="edit-thread-title"
+                      type="text"
+                      value={editTitle}
+                      onChange={(e) => setEditTitle(e.target.value)}
+                      maxLength={300}
+                      className="ui-field"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="edit-thread-content" className="mb-1 block text-sm font-semibold text-white/85">
+                      Sadržaj
+                    </label>
+                    <textarea
+                      id="edit-thread-content"
+                      value={editContent}
+                      onChange={(e) => setEditContent(e.target.value)}
+                      onKeyDown={onThreadEditKeyDown}
+                      className="ui-field resize-none"
+                      rows={Math.min(16, Math.max(6, editContent.split('\n').length + 2))}
+                      aria-label="Izmena sadržaja teme"
+                      required
+                    />
+                    <span className="mt-1 block font-mono text-[10px] uppercase tracking-[0.08em] text-white/35">
+                      Ctrl+Enter → sačuvaj · Esc → odustani
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditingThread(false)}
+                      className="ui-btn br-ghost ui-btn-sm"
+                      disabled={savingThread}
+                    >
+                      <X size={13} /> Otkaži
+                    </button>
+                    <button
+                      type="submit"
+                      className="ui-btn br-primary ui-btn-sm"
+                      disabled={savingThread || !editTitle.trim() || !editContent.trim()}
+                    >
+                      <Send size={13} />
+                      {savingThread ? 'Čuvanje…' : 'Sačuvaj izmene'}
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <>
+                  <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                    <h1 className="font-display text-[1.625rem] font-semibold leading-[1.15] tracking-[-0.025em] text-white sm:text-3xl">
+                      {thread.title}
+                      {/* 6.x — isto kao u listi foruma: rešena tema je odmah prepoznatljiva. */}
+                      {acceptedId && (
+                        <span className="ml-2 inline-flex translate-y-[-2px] items-center gap-1 rounded-full border border-[var(--color-success)]/40 bg-[var(--color-success)]/10 px-2 py-0.5 align-middle font-mono text-[11px] font-medium uppercase tracking-wide text-[var(--color-success)]">
+                          <CheckCircle2 size={11} aria-hidden="true" /> Rešeno
+                        </span>
+                      )}
+                    </h1>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {thread.isPinned && (
+                        <Badge tone="warning">
+                          <Pin size={11} /> Fiksirano
+                        </Badge>
+                      )}
+                      {isLocked && (
+                        <Badge tone="error">
+                          <Lock size={11} /> Zaključano
+                        </Badge>
+                      )}
+                      {thread.isEdited && (
+                        <Badge tone="neutral" className="!normal-case !text-[11px]">
+                          izmenjeno
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
 
               {Array.isArray(thread.tags) && thread.tags.length > 0 && (
                 <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -572,7 +903,7 @@ export default function ThreadPage() {
                 </div>
               )}
 
-              <ThreadBody content={thread.content} />
+              {editingThread ? null : <ThreadBody content={thread.content} />}
 
               {/* Interaktivna anketa (ako tema ima poll) */}
               {poll && <PollWidget threadId={thread.id} poll={poll} />}
@@ -669,6 +1000,17 @@ export default function ThreadPage() {
                   >
                     <Bookmark size={18} fill={bookmarked ? 'currentColor' : 'none'} />
                   </button>
+                  {(isOwnThread || canModerate) && !editingThread && !thread.isDeleted && (
+                    <button
+                      type="button"
+                      onClick={startThreadEdit}
+                      className="ui-icon-btn hover:!text-cyan-300"
+                      title="Izmeni temu"
+                      aria-label="Izmeni temu"
+                    >
+                      <Pencil size={18} />
+                    </button>
+                  )}
                   <ReportButton
                     targetType="thread"
                     targetId={thread.id}
@@ -749,6 +1091,19 @@ export default function ThreadPage() {
           </div>
         ) : (
           <form onSubmit={handlePostTopComment} className="mb-8 rounded-2xl border border-white/[0.08] bg-[#0D101D]/75 p-4 shadow-[0_8px_32px_rgba(0,0,0,0.4)] backdrop-blur-md sm:p-5">
+            {/* F-EDIT2 — nenametljiv banner za vraćanje nesačuvanog drafta odgovora. */}
+            {replyDraft.hasDraft && (
+              <DraftRecoveryBanner
+                updatedAt={replyDraft.updatedAt}
+                isStale={false}
+                onRestore={() => replyDraft.restore()}
+                onDiscard={() => {
+                  replyDraft.clear();
+                  setNewCommentText('');
+                  setNewCommentSpoiler(false);
+                }}
+              />
+            )}
             <textarea
               value={newCommentText}
               onChange={(e) => setNewCommentText(e.target.value)}
@@ -772,10 +1127,13 @@ export default function ThreadPage() {
                 />
                 <span>Označi odgovor kao spoiler</span>
               </label>
-              <button type="submit" className="ui-btn br-primary ui-btn-sm" disabled={!currentUser}>
-                <Send size={15} />
-                Objavi odgovor (+5 XP)
-              </button>
+              <span className="flex items-center gap-3">
+                <DraftStatusIndicator status={replyDraft.status} />
+                <button type="submit" className="ui-btn br-primary ui-btn-sm" disabled={!currentUser}>
+                  <Send size={15} />
+                  Objavi odgovor (+5 XP)
+                </button>
+              </span>
             </div>
           </form>
         )}
@@ -792,13 +1150,23 @@ export default function ThreadPage() {
         ) : (
           <div className="space-y-3">
             {replies.map((comment) => (
-              <div key={comment.id} className="rounded-2xl border border-white/[0.07] bg-[#0D101D]/70 p-4 backdrop-blur-md transition-all duration-300 hover:-translate-y-0.5 hover:border-cyan-500/30 hover:shadow-[0_12px_30px_-10px_rgba(6,182,212,0.25)] sm:p-5">
+              <div
+                key={comment.id}
+                className={
+                  acceptedId && (comment.id === acceptedId || hasAcceptedDescendant(comment, acceptedId))
+                    ? 'rounded-2xl border border-[var(--color-success)]/40 bg-[var(--color-success)]/[0.04] p-4 backdrop-blur-md transition-all duration-300 sm:p-5'
+                    : 'rounded-2xl border border-white/[0.07] bg-[#0D101D]/70 p-4 backdrop-blur-md transition-all duration-300 hover:-translate-y-0.5 hover:border-cyan-500/30 hover:shadow-[0_12px_30px_-10px_rgba(6,182,212,0.25)] sm:p-5'
+                }
+              >
                 <CommentItem
                   comment={comment}
                   canModerate={Boolean(canModerate)}
                   onReplySubmitted={handleNestedReply}
                   onVote={handleReplyVote}
                   onDelete={handleDeleteReply}
+                  onEdited={loadThread}
+                  canAccept={Boolean(canAccept) && !thread.isLocked}
+                  onAccept={handleAccept}
                 />
               </div>
             ))}
@@ -812,6 +1180,7 @@ export default function ThreadPage() {
 /**
  * Sadržaj teme: rich editor čuva HTML, pa se prikazuje kroz DOMPurify.
  * Plain tekst (bez tagova) dobija `<br />` umesto sirovih newline-ova.
+ * F-LB — klik na sliku u tekstu otvara Lightbox (delegirani klik).
  */
 function ThreadBody({ content }: { content?: string }) {
   const raw = content ?? '';
@@ -819,11 +1188,27 @@ function ThreadBody({ content }: { content?: string }) {
   const safe = useSanitizedHtml(raw);
   const html = looksLikeHtml ? safe : `<p>${escapeHtml(raw).replace(/\n/g, '<br />')}</p>`;
 
+  // F-7 — standalone whitelist URL-ovi (YouTube/Spotify/Twitch) u zasebnom
+  // redu postaju MediaEmbed; ostalo ostaje sanitizovan HTML/`<a>`.
+  return <EmbeddedContent html={html} className="article-rich-content mb-6 break-words text-[15px] leading-[1.7] text-white/80" />;
+}
+
+/** RichContentWithLightbox + F-7 embed prepoznavanje (deli html na segmente). */
+function EmbeddedContent({ html, className }: { html: string; className?: string }) {
+  const segments = embedifyHtml(html);
+  if (!hasEmbeds(segments)) {
+    return <RichContentWithLightbox html={html} className={className} />;
+  }
   return (
-    <div
-      className="article-rich-content mb-6 break-words text-[15px] leading-[1.7] text-white/80"
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+    <div className={className}>
+      {segments.map((segment, index) =>
+        segment.type === 'embed' ? (
+          <MediaEmbed key={`embed-${index}`} media={segment.media} />
+        ) : (
+          <RichContentWithLightbox key={`html-${index}`} html={segment.html} className="" />
+        ),
+      )}
+    </div>
   );
 }
 
@@ -838,4 +1223,28 @@ function escapeHtml(value: string) {
 
 function countReplies(list: Comment[]): number {
   return list.reduce((sum, item) => sum + 1 + (item.replies ? countReplies(item.replies) : 0), 0);
+}
+
+/**
+ * 2.11.0 — prihvaćen odgovor može biti i ugnježden. Kartica „rešenja“ mora da
+ * oboji roditelja da bi se videlo bez skrolovanja do unutrašnjeg odgovora.
+ */
+function hasAcceptedDescendant(comment: Comment, acceptedId: string | null): boolean {
+  if (!acceptedId || !comment.replies) return false;
+  return comment.replies.some(
+    (reply) => reply.id === acceptedId || hasAcceptedDescendant(reply, acceptedId),
+  );
+}
+
+/**
+ * 2.11.0 — propagira `acceptedReplyId` teme kroz drvo odgovora.
+ * Server ga šalje samo na temi, pa se oznaka mora spustiti do konkretne kartice.
+ */
+function markAccepted(list: Comment[], acceptedId: string | null): Comment[] {
+  if (!acceptedId) return list;
+  return list.map((comment) => ({
+    ...comment,
+    isAccepted: comment.id === acceptedId,
+    replies: comment.replies ? markAccepted(comment.replies, acceptedId) : comment.replies,
+  }));
 }

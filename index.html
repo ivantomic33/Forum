@@ -5,6 +5,9 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#07080a" />
+    <!-- F-7 — PWA: manifest (instalacija na telefon/desktop) i ikone iz `scripts/generate-icons.mjs`. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
     <!-- F-23 — fontovi su self-hostovani (@fontsource u src/main.tsx); nema veze ka fonts.googleapis.com. -->
     <meta
       name="description"
@@ -12,6 +15,9 @@
     />
     <link rel="canonical" href="/" />
     <meta name="robots" content="index, follow" />
+    <!-- RSS autodiscovery — čitači (Feedly, Thunderbird, browser ekstenzije) nalaze feed
+         automatski; server ga generiše iz baze (server/index.ts, ruta /rss.xml). -->
+    <link rel="alternate" type="application/rss+xml" title="NEXUS Gaming Portal — RSS Feed" href="/rss.xml" />
 
     <!-- Open Graph / Twitter (SPA ih menja po ruti u src/lib/pageMeta.ts) -->
     <meta property="og:site_name" content="NEXUS Gaming Portal" />
@@ -22,8 +28,15 @@
       content="Gejming vesti, recenzije, forum i rang-liste — sve na jednom mestu."
     />
     <meta property="og:url" content="/" />
-    <meta name="twitter:card" content="summary" />
+    <!-- N-13 — 1200×630 (public/og/default.png). Prerender (npm run build) zamenjuje
+         ove tagove pravom apsolutnom slikom iz `/api/og/…` za svaku javnu rutu. -->
+    <meta property="og:image" content="/og/default.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="NEXUS — gejming portal i forum" />
+    <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="NEXUS // Gaming Portal &amp; Forum" />
+    <meta name="twitter:image" content="/og/default.png" />
 
     <script type="application/ld+json">
       {
@@ -37,6 +50,32 @@
           "query-input": "required name=search_term_string"
         }
       }
+    </script>
+
+    <!-- U-08 — tema pre prvog paint-a (bez „flesha“ crnog ekrana za one koji čitaju na svetlom) -->
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem('nexus-theme');
+          var pref = saved === 'dark' || saved === 'light' || saved === 'system' ? saved : 'system';
+          var resolved =
+            pref === 'system'
+              ? window.matchMedia('(prefers-color-scheme: light)').matches
+                ? 'light'
+                : 'dark'
+              : pref;
+          var root = document.documentElement;
+          root.setAttribute('data-theme', resolved);
+          root.classList.toggle('dark', resolved === 'dark');
+          root.style.colorScheme = resolved;
+          if (resolved === 'light') {
+            var meta = document.querySelector('meta[name="theme-color"]');
+            if (meta) meta.setAttribute('content', '#f6f7fb');
+          }
+        } catch (e) {
+          /* privatni režim: ostaje default (dark) */
+        }
+      })();
     </script>
 
     <title>NEXUS // Gaming Portal &amp; Forum</title>

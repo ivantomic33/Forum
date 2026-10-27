@@ -1,5 +1,4 @@
-import { Link } from 'react-router-dom';
-import { Shield, FileText, Scale } from 'lucide-react';
+﻿import { LegalLayout, type LegalDoc } from '../components/legal/LegalLayout';
 
 /**
  * F-09 — politika privatnosti opisuje STVARNE tokove podataka:
@@ -16,7 +15,7 @@ const RUKOVALAC = {
   email: 'privacy@nexusgaming.com',
 };
 
-const SECTIONS = [
+const SECTIONS: LegalDoc['sections'] = [
   {
     id: '1',
     title: 'Rukovalac podacima',
@@ -42,7 +41,7 @@ const SECTIONS = [
     title: 'Pravni osnovi obrade',
     bullets: [
       'Izvršenje ugovora (čl. 12 Zakona o zaštiti podataka o ličnosti, ZZPL) — nalog, objavljivanje sadržaja, povezani nalozi.',
-      'Saglasnost — newsletter. Saglasnost se daje potvrdom linka iz mejla i može se povući u svakom trenutku (link za odjavu u svakom mejlu).',
+      'Saglasnost — newsletter. Newsletter mejlovi se trenutno ne šalju; saglasnost se može povući u svakom trenutku (odjava u profilu).',
       'Legitimni interes — bezbednost servisa, sprečavanje spama i prevara, tehnički logovi.',
       'Pravna obaveza — čuvanje podataka o prijavama i moderaciji kada to zakon zahteva.',
     ],
@@ -86,7 +85,7 @@ const SECTIONS = [
     title: 'Primaoci i obrađivači',
     bullets: [
       'Supabase (PostgreSQL baza) — hosting baze podataka.',
-      'Resend ili Brevo — slanje transakcionih mejlova (verifikacija, reset, newsletter).',
+      'Resend ili Brevo — slanje transakcionih mejlova (samo verifikacija adrese i reset lozinke).',
       'DiceBear (api.dicebear.com) — generisanje avatara po korisničkom imenu. Javno korisničko ime i IP adresa pregledača odlaze tom servisu; alternativa je unos sopstvenog URL-a avatara ili slike iz lokalnog izbora (lokalno generisanje avatara je planirano).',
       'Unsplash — učitavanje ilustracija pozadine na auth ekranu (IP adresa se otkriva servisu).',
       'Sentry — opciono, prijava grešaka bez lozinki i tokena.',
@@ -111,63 +110,23 @@ const SECTIONS = [
     title: 'Kontakt',
     body: `Za sva pitanja o obradi podataka: ${RUKOVALAC.email}. Odgovaramo u roku od 30 dana od prijema zahteva.`,
   },
-] as const;
+];
+
+export const PRIVACY_DOC: LegalDoc = {
+  eyebrow: 'Legal',
+  title: 'Politika privatnosti',
+  description:
+    'Koje podatke NEXUS obrađuje, zašto, koliko ih čuva i kako ih preuzimate ili brišete — napisano onako kako sistem zaista radi.',
+  version: 'Verzija 3.0 — Datum važenja: 20.10.2026.',
+  icon: 'shield',
+  sections: SECTIONS,
+};
 
 export default function PrivacyPage() {
   return (
-    <div className="section">
-      <div className="container max-w-4xl">
-        <div className="text-center mb-10">
-          <div className="eyebrow mb-4">
-            <Shield size={14} />
-            Legal
-          </div>
-          <h1 className="page-title mb-3">Politika privatnosti</h1>
-          <p className="text-white/60 text-sm">Verzija 3.0 — Datum važenja: 20.10.2026.</p>
-          <p className="text-white/50 text-xs mt-2">
-            Konačan tekst mora da proveri pravnik; podaci o rukovaocu se popunjavaju pre objavljivanja.
-          </p>
-        </div>
-
-        <div className="rounded-lg border border-white/[0.09] bg-surface-1 p-6 md:p-8 space-y-8">
-          {SECTIONS.map((section) => (
-            <section key={section.id} className="terms-section">
-              <h3 className="flex items-center gap-2 mb-3">
-                <span className="w-6 h-6 rounded-md bg-[var(--color-primary-subtle)] border border-[var(--color-primary)]/30 grid place-items-center text-xs font-bold text-[var(--color-primary-fg)] flex-shrink-0">
-                  {section.id}
-                </span>
-                <span className="text-[var(--color-primary-fg)] font-bold">{section.title}</span>
-              </h3>
-              {'body' in section && section.body && (
-                <p className="text-white/55 text-sm leading-relaxed mb-2">{section.body}</p>
-              )}
-              {'body2' in section && section.body2 && (
-                <p className="text-white/55 text-sm leading-relaxed mb-2">{section.body2}</p>
-              )}
-              {'bullets' in section && section.bullets && (
-                <ul className="space-y-1.5 pl-1">
-                  {section.bullets.map((b, i) => (
-                    <li key={i} className="text-white/55 text-sm leading-relaxed flex gap-2">
-                      <span className="text-[var(--color-primary)] mt-0.5">•</span>
-                      <span>{b}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          ))}
-        </div>
-
-        <div className="flex items-center justify-center gap-6 mt-8 text-sm">
-          <Link to="/terms" className="text-[var(--color-primary-fg)] hover:text-[var(--color-primary-hover)] transition flex items-center gap-1.5">
-            <Scale size={15} /> Uslovi korišćenja
-          </Link>
-          <span className="text-white/20">|</span>
-          <Link to="/rules" className="text-[var(--color-primary-fg)] hover:text-[var(--color-primary-hover)] transition flex items-center gap-1.5">
-            <FileText size={15} /> Pravila foruma
-          </Link>
-        </div>
-      </div>
-    </div>
+    <LegalLayout
+      doc={PRIVACY_DOC}
+      footerNote="Konačan tekst proverava pravnik; podaci o rukovaocu se popunjavaju pre objavljivanja. Izvoz i brisanje podataka rade odmah iz Profil → Podešavanja."
+    />
   );
 }

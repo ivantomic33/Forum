@@ -1,0 +1,9 @@
+{
+  "file": "src/components/Navbar.tsx",
+  "edits": [
+    {
+      "from": "<span>Prijava</span>",
+      "to": "<span className=\"hidden sm:inline\">Prijava</span>"
+    }
+  ]
+}

@@ -1,0 +1,1920 @@
+@charset "UTF-8";
+/* ==========================================================================
+   NEXUS PORTAL — „TERMINAL / MONO“ 5.0 — vizuelni sloj (nadgradnja, bez logike)
+
+   Uključuje se JEDNOM linijom u `src/main.tsx`, POSLE `nexus-neon-glass.css`
+   (isti specifičnost, kasnije u kaskadi → pobeđuje):
+
+       import './index.css';
+       import '../docs/dizajn-4.0/nexus-neon-glass.css';
+       import '../docs/dizajn-5.0/nexus-terminal-mono.css';
+
+   Princip:
+     - Tamna „CRT“ baza (#0a0e0b) sa zelenim fosfornim akcentom (#3dffa0).
+     - SKORO SVE je monospace: JetBrains Mono (već self-hostovan 400/500/600).
+     - Oštri uglovi (radius 0-4px), 1px piksel-ivice umesto hairline i glass-a.
+     - Forum/portal izgleda kao terminal: „>`“ prefiksi, mono meta, amber znakovi.
+     - Bez glow-a na karticama; glow samo na akciji i fokusu.
+     - Tema, `data-theme`, rute, logika — netaknuti (dark-only skin, kao 4.0).
+
+   Sadržaj:
+      01. Tokeni + mapiranje `--color-*`
+      02. Ambient / canvas / scrollbar
+      03. Tipografija — sve u mono
+      04. Dugmad, inputi, badge, tabovi
+      05. Kartice, paneli, modali — oštre ivice
+      06. Forum redovi — terminal tabela
+      07. Fokus i keyframes (CRT flicker, caret blink)
+      08. Reduced motion / print
+   ========================================================================== */
+
+/* ==========================================================================
+   01. TOKENI
+   ========================================================================== */
+:root {
+  --tm-bg: #0a0a10;
+  --tm-bg-deep: #07070c;
+  --tm-accent: #a78bfa;          /* violet — brend NEXUS-a */
+  --tm-accent-hover: #c4b5fd;
+  --tm-accent-dim: #6d5cd0;
+  --tm-amber: #f5c451;           /* terminal warning / cene */
+  --tm-cyan: #7dd3fc;            /* info / link */
+  --tm-red: #fb7185;
+  --tm-font: "JetBrains Mono", ui-monospace, SFMono-Regular, "Cascadia Mono", monospace;
+
+  --tm-panel: #10101c;
+  --tm-panel-2: #151524;
+  --tm-panel-3: #1c1c30;
+  --tm-border: #25234a;
+  --tm-border-strong: #3d3a78;
+
+  --tm-text: #eceaf6;
+  --tm-text-secondary: #b6b2d0;
+  --tm-text-muted: #8a86ad;
+
+  /*
+   * Preslikavanje Neon Glass 4.0 promenljivih (--ng-*) na Terminal paletu.
+   * 4.0 overlay hardcoduje ovde i tamo `var(--ng-accent)` (bila #00ff9d);
+   * ovim blokom SVI ti pozivi (dugmad, eyebrow, cena, deal-cta, glow…) postaju
+   * violet, bez editovanja 4.0 fajla. `:root:root` pobeđuje njegov `:root` blok.
+   */
+  --ng-bg: var(--tm-bg);
+  --ng-bg-deep: var(--tm-bg-deep);
+  --ng-accent: var(--tm-accent);
+  --ng-accent-hover: var(--tm-accent-hover);
+  --ng-accent-soft: rgba(167, 139, 250, 0.25);
+  --ng-accent-line: rgba(167, 139, 250, 0.55);
+  --ng-cyan: var(--tm-cyan);
+  --ng-cyan-soft: #bae6fd;
+  --ng-on-accent: var(--tm-bg-deep);
+  --ng-glass: rgba(16, 16, 28, 0.58);
+  --ng-glass-strong: rgba(12, 12, 20, 0.82);
+  --ng-glass-border: var(--tm-border);
+  --ng-glass-border-hover: var(--tm-border-strong);
+  --ng-text: var(--tm-text);
+  --ng-text-secondary: var(--tm-text-secondary);
+  --ng-text-tertiary: var(--tm-text-muted);
+  --ng-text-muted: var(--tm-text-muted);
+  --ng-glow-btn: none;
+  --ng-glow-card: none;
+  --ng-glow-card-hover: none;
+  --ng-glow-hero: none;
+  --ng-shadow-card: none;
+  --ng-shadow-hover: none;
+}
+
+/* Mapiranje postojećih tokena — `:root:root` pobeđuje i svetlu temu (dark-only skin). */
+:root:root {
+  color-scheme: dark !important;
+
+  --color-surface-0: var(--tm-bg);
+  --color-surface-1: var(--tm-panel);
+  --color-surface-2: var(--tm-panel-2);
+  --color-surface-3: var(--tm-panel-3);
+  --color-surface-4: #232244;
+  --color-surface-5: #2c2a56;
+
+  --color-primary: var(--tm-accent);
+  --color-primary-hover: var(--tm-accent-hover);
+  --color-primary-active: var(--tm-accent-dim);
+  --color-primary-surface: #7c5ce0;
+  --color-primary-surface-hover: #6b4cd0;
+  --color-primary-muted: rgba(167, 139, 250, 0.13);
+  --color-primary-subtle: rgba(167, 139, 250, 0.06);
+  --color-primary-fg: var(--tm-accent);
+  --color-primary-fg-light: var(--tm-accent-hover);
+  --color-primary-glow: rgba(167, 139, 250, 0.3);
+  --color-primary-glow-soft: rgba(167, 139, 250, 0.16);
+  --color-primary-glow-strong: rgba(167, 139, 250, 0.45);
+  --color-on-solid: #12081f;
+  --color-on-solid-rgb: 18, 8, 31;
+  --color-text-on-primary: #12081f;
+
+  --color-secondary: var(--tm-cyan);
+  --color-secondary-hover: #a5e0ff;
+  --color-secondary-glow: rgba(125, 211, 252, 0.12);
+  --color-secondary-glow-strong: rgba(125, 211, 252, 0.45);
+  --color-info: var(--tm-cyan);
+  --color-info-fg: #a5e0ff;
+
+  --color-deal: var(--tm-amber);
+  --color-deal-fg: var(--tm-amber);
+  --color-warning: var(--tm-amber);
+  --color-warning-fg: var(--tm-amber);
+  --color-error: var(--tm-red);
+  --color-tertiary: var(--tm-red);
+  --color-community: #8b5cf6;
+  --color-community-fg: #c4b5fd;
+  --color-gold-rank: var(--tm-amber);
+  --color-silver-rank: #c3c0d4;
+  --color-bronze-rank: #d98e4a;
+
+  --color-text-primary: var(--tm-text);
+  --color-text-secondary: var(--tm-text-secondary);
+  --color-text-tertiary: var(--tm-text-muted);
+  --color-text-muted: #5d7668;
+  --color-text-inverse: #060907;
+  --color-text-soft: #c4d8cb;
+
+  --color-border-subtle: var(--tm-border);
+  --color-border-default: #2e2b5a;
+  --color-border-strong: var(--tm-border-strong);
+  --color-border-focus: var(--tm-accent);
+  --color-border-subtle-rgb: 37, 35, 74;
+  --color-border-default-rgb: 46, 43, 90;
+
+  --color-depth-indigo: rgba(167, 139, 250, 0.07);
+  --color-depth-violet: rgba(125, 211, 252, 0.05);
+  --color-grid-line: rgba(167, 139, 250, 0.05);
+  --color-particle: rgba(167, 139, 250, 0.4);
+  --color-particle-navy: rgba(125, 211, 252, 0.3);
+  --color-scanline: rgba(167, 139, 250, 0.09);
+
+  --color-overlay: rgba(7, 7, 12, 0.85);
+  --color-input-bg: #0d0d16;
+  --color-input-border: var(--tm-border);
+  --color-skeleton: #151524;
+
+  --glass-bg: rgba(10, 10, 16, 0.92);
+  --glass-bg-strong: rgba(8, 8, 13, 0.97);
+  --glass-blur: 0px;
+
+  --shadow-sm: 0 1px 0 rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 4px 0 rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 8px 0 rgba(0, 0, 0, 0.5);
+  --shadow-glow: 0 0 0 1px var(--tm-accent), 0 0 14px rgba(167, 139, 250, 0.35);
+  --shadow-hover: var(--shadow-sm);
+
+  /* Bez gradijenata — terminal je ravan. Jedina linija: accent-rule. */
+  --gradient-brand: linear-gradient(90deg, var(--tm-accent), var(--tm-accent));
+  --gradient-cyber: linear-gradient(90deg, var(--tm-accent), var(--tm-cyan));
+  --gradient-prestige: linear-gradient(90deg, var(--tm-accent), var(--tm-cyan));
+  --gradient-prestige-ring: linear-gradient(135deg, var(--tm-accent), var(--tm-cyan));
+  --gradient-card-sheen: none;
+  --gradient-hero-fade: linear-gradient(180deg, rgba(10, 10, 16, 0) 0%, rgba(10, 10, 16, 0.6) 45%, rgba(10, 10, 16, 0.95) 100%);
+  --gradient-hero-fade-tight: linear-gradient(180deg, rgba(10, 10, 16, 0) 30%, rgba(10, 10, 16, 0.94) 100%);
+  --gradient-hero-band-fade: linear-gradient(180deg, rgba(10, 10, 16, 0.1) 0%, rgba(10, 10, 16, 0.4) 38%, rgba(10, 10, 16, 0.8) 72%, var(--tm-bg) 100%);
+
+  /* TIPOGRAFIJA — sve je monospace */
+  --font-family-display: var(--tm-font);
+  --font-family-heading: var(--tm-font);
+  --font-family-body: var(--tm-font);
+  --font-display: var(--tm-font);
+  --font-heading: var(--tm-font);
+  --font-sans: var(--tm-font);
+  --ng-font-display: var(--tm-font);
+  --ng-font-body: var(--tm-font);
+
+  /* Oštri uglovi */
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 4px;
+  --radius-xl: 6px;
+  --ng-radius-card: 4px;
+  --ng-radius-panel: 6px;
+  --ng-radius-btn: 2px;
+
+  --ease-forge: steps(8, end);
+  --ease-out-soft: steps(8, end);
+  --ng-ease: cubic-bezier(0.2, 0, 0, 1);
+
+  --ring-focus: 0 0 0 2px var(--tm-bg), 0 0 0 4px var(--tm-accent);
+  --focus-ring: 2px solid var(--tm-accent);
+}
+
+/* ==========================================================================
+   02. AMBIENT / CANVAS — ravan kanvas + CRT sken linija
+   ========================================================================== */
+:root body,
+:root[data-theme='dark'] body,
+:root[data-theme='light'] body,
+:root[data-theme='light'] body[data-theme='light'] {
+  color-scheme: dark;
+  background-color: var(--tm-bg) !important;
+  background-image:
+    linear-gradient(rgba(167, 139, 250, 0.028) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(167, 139, 250, 0.028) 1px, transparent 1px) !important;
+  background-size: 28px 28px, 28px 28px !important;
+  font-family: var(--tm-font);
+}
+
+/* Ambient sjaj iz base.css → gotovo ugasio; grid ostaje ( Terminal mreza ) */
+:root body::before {
+  background:
+    radial-gradient(ellipse 55% 45% at 20% 0%, rgba(167, 139, 250, 0.05), transparent 65%),
+    radial-gradient(ellipse 50% 40% at 85% 100%, rgba(83, 208, 255, 0.04), transparent 65%) !important;
+  animation: none !important;
+}
+
+/* Sken linija je sada CRT „refresh“ traka — zadrzi base.css animaciju */
+:root .nx-scan::before {
+  background: linear-gradient(180deg, transparent 0%, rgba(167, 139, 250, 0.05) 45%, rgba(167, 139, 250, 0.05) 55%, transparent 100%) !important;
+}
+
+/* 4.0 Neon Glass hardcode-ovi — ugasi/preslikaj u terminal paletu */
+html {
+  background-color: var(--tm-bg) !important;
+}
+
+/* Ambijent tela iz 4.0 — svetla zelena radijalna pozadina → terminal mreža */
+:root body,
+:root[data-theme='dark'] body,
+:root[data-theme='light'] body,
+:root[data-theme='light'] body[data-theme='light'] {
+  background-image:
+    radial-gradient(ellipse 55% 45% at 20% 0%, rgba(167, 139, 250, 0.05), transparent 65%),
+    radial-gradient(ellipse 50% 40% at 85% 100%, rgba(83, 208, 255, 0.04), transparent 65%) !important;
+  background-size: auto, auto !important;
+  background-attachment: fixed !important;
+}
+
+/* #main-content / scroll wrapper nose Neon Glass #0a0a0c — terminal baza */
+#main-content,
+.has-mobile-tabbar,
+.has-mobile-tabbar > div {
+  background-color: var(--tm-bg) !important;
+  background-image: none !important;
+}
+
+/* Mikro-traka iznad navigacije — u Terminal skinu se uklanja (prazno mesto) */
+.nb-microbar {
+  display: none !important;
+}
+
+/* Navigacija — čvrsta, bez glass-a; underline = zeleni blok bez glow-a */
+nav.sticky {
+  background: rgba(7, 7, 12, 0.96) !important;
+  border-bottom: 1px solid var(--tm-border) !important;
+  box-shadow: none !important;
+}
+
+nav.sticky a[style*='--nav-accent'] .nav-tick {
+  background-color: var(--tm-accent) !important;
+  background-image: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  height: 2px;
+}
+
+nav.sticky a[aria-label^='NEXUS'] .nexus-logo-mark {
+  background-image: none !important;
+  background: #12101f !important;
+  color: var(--tm-accent) !important;
+  border: 1px solid var(--tm-border-strong) !important;
+  border-radius: 2px !important;
+  backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+nav.sticky a[aria-label^='NEXUS']:hover .nexus-logo-mark {
+  transform: none;
+  box-shadow: none !important;
+}
+
+nav.sticky a[aria-label^='NEXUS'] .ui-badge-secondary {
+  color: var(--tm-cyan) !important;
+  background: rgba(83, 208, 255, 0.08) !important;
+  border-color: rgba(83, 208, 255, 0.3) !important;
+  border-radius: 2px !important;
+}
+
+/* Mobilni meni */
+#mobile-menu {
+  border-top-color: var(--tm-border) !important;
+  background: rgba(7, 7, 12, 0.98) !important;
+}
+
+#mobile-menu a:hover {
+  background: rgba(167, 139, 250, 0.06) !important;
+  color: var(--tm-accent) !important;
+  border-radius: 2px !important;
+}
+
+.navbar-actions .ui-icon-btn {
+  border-radius: 2px !important;
+  background: var(--tm-panel-2) !important;
+  border: 1px solid var(--tm-border) !important;
+}
+
+.mobile-tabbar {
+  background: rgba(7, 7, 12, 0.97) !important;
+  border-top: 1px solid var(--tm-border) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.mobile-tab-create-icon {
+  box-shadow: none !important;
+}
+
+.mobile-tabbar a.is-active::before,
+.mobile-tabbar button.is-active::before {
+  background: var(--tm-accent);
+  box-shadow: none !important;
+}
+
+/* Footer — ravan panel, terminal ivica; naslovi čitljivi */
+.forge-footer,
+footer.forge-footer {
+  background: #0a0a10 !important;
+  background-image: none !important;
+  border-top: 1px solid var(--tm-border-strong) !important;
+}
+
+.forge-footer h3,
+.forge-footer h4,
+.forge-footer .font-display,
+.forge-footer strong {
+  color: var(--tm-accent) !important;
+}
+
+.forge-footer p,
+.forge-footer span,
+.forge-footer li,
+.forge-footer a {
+  color: var(--tm-text-secondary) !important;
+}
+
+.forge-footer a:hover {
+  color: var(--tm-accent) !important;
+}
+
+/* Auth brand panel — Neon Glass/legacy koristi --gradient-brand (pun bloj boje).
+   Terminal: tamni panel sa monoskop tekstom i supetljanom mrežom. */
+.auth-aside {
+  background-image: none !important;
+  background-color: var(--tm-panel) !important;
+}
+
+.auth-aside::before {
+  background-image:
+    linear-gradient(rgba(167, 139, 250, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(167, 139, 250, 0.06) 1px, transparent 1px) !important;
+}
+
+/* ==========================================================================
+   03b. DUGMAD — Neon Glass hover glow/transform → ugasi
+   ========================================================================== */
+/* Primary dugme — Neon Glass koristi --ng-accent (#00ff9d) hardkodovano.
+   Terminal: ravna violet površina, bez gradijenta i glow-a. */
+.br-primary {
+  background-color: var(--tm-accent) !important;
+  background-image: none !important;
+  border-color: var(--tm-accent) !important;
+  color: var(--tm-bg-deep) !important;
+  box-shadow: none !important;
+}
+
+.br-primary:hover:not(:disabled) {
+  background-color: var(--tm-accent-hover) !important;
+  background-image: none !important;
+  border-color: var(--tm-accent-hover) !important;
+  color: var(--tm-bg-deep) !important;
+  box-shadow: none !important;
+  transform: none !important;
+  text-shadow: none !important;
+}
+
+.br-primary:active:not(:disabled) {
+  background-color: var(--tm-accent-dim) !important;
+  transform: none !important;
+}
+
+.br-secondary:hover:not(:disabled),
+.br-ghost:hover:not(:disabled) {
+  background: rgba(167, 139, 250, 0.08) !important;
+  border-color: rgba(167, 139, 250, 0.4) !important;
+  color: var(--tm-accent-hover) !important;
+  box-shadow: none !important;
+}
+
+.ui-btn:hover {
+  box-shadow: none !important;
+}
+
+.br-primary::after,
+.br-primary:hover:not(:disabled) {
+  animation: none !important;
+  box-shadow: none !important;
+}
+
+/* ==========================================================================
+   03c. HERO — ravan „boot screen“ umesto glass cinematic
+   ========================================================================== */
+section.hero-band,
+.hero-band {
+  background: var(--tm-panel) !important;
+  border: 1px solid var(--tm-border) !important;
+  border-radius: 4px !important;
+  box-shadow: none !important;
+  animation: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.hero-band:hover {
+  border-color: var(--tm-border-strong) !important;
+  box-shadow: none !important;
+  animation: none !important;
+}
+
+.hero-band::after {
+  background: none !important;
+}
+
+.hero-band .hero-band-title {
+  font-family: var(--tm-font) !important;
+  text-shadow: none !important;
+  text-transform: uppercase;
+}
+
+.hero-band:hover .hero-band-title,
+.hero-band a:hover .hero-band-title {
+  color: var(--tm-accent) !important;
+  text-shadow: none !important;
+}
+
+.hero-band .story-eyebrow {
+  border-radius: 2px !important;
+  border: 1px solid var(--tm-border-strong) !important;
+  background: var(--tm-bg-deep) !important;
+  color: var(--tm-accent) !important;
+  backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+.hero-band .story-eyebrow::before {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: var(--tm-accent) !important;
+}
+
+.hero-band-actions .br-primary:hover:not(:disabled) {
+  transform: none !important;
+}
+
+.hero-band .hero-band-media::after {
+  background: linear-gradient(180deg, rgba(10, 10, 16, 0.05) 0%, rgba(10, 10, 16, 0.7) 66%, rgba(10, 10, 16, 0.96) 88%, var(--tm-bg) 100%) !important;
+}
+
+/* ==========================================================================
+   03d. KARTICE — story/deal: ravan panel, bez lift/glow sheen-a
+   ========================================================================== */
+.story-card-row,
+.deal-card {
+  background: var(--tm-panel) !important;
+  border: 1px solid var(--tm-border) !important;
+  border-radius: 4px !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.story-card-row::before,
+.deal-card::before {
+  display: none !important;
+}
+
+.story-card-row:hover,
+.deal-card:hover,
+.story-card-row:focus-visible,
+.deal-card:focus-visible {
+  transform: none !important;
+  background: var(--tm-panel-2) !important;
+  border-color: var(--tm-border-strong) !important;
+  box-shadow: none !important;
+}
+
+.story-card-row:hover .story-card-title,
+.deal-card:hover .deal-card-title {
+  color: var(--tm-accent) !important;
+}
+
+.story-card-row:hover .story-card-media img,
+.deal-card:hover img {
+  transform: none !important;
+}
+
+/* Deal cena — mono, amber terminal tone umesto gradijenta */
+.deal-card .price-tag-value {
+  font-family: var(--tm-font) !important;
+  background: none !important;
+  -webkit-background-clip: initial !important;
+  background-clip: initial !important;
+  color: var(--tm-amber) !important;
+}
+
+.deal-card .price-tag-discount {
+  color: var(--tm-accent) !important;
+}
+
+.deal-card .price-tag-expiry,
+.deal-card .price-tag-original {
+  color: var(--tm-text-muted) !important;
+}
+
+.deal-card .price-tag-original {
+  text-decoration: line-through;
+}
+
+/* Ticker, tabovi, panel zajednice — ravan terminal */
+.ticker-wrap,
+.container>.mb-6.mt-4.flex.items-center.gap-3.overflow-hidden.rounded-lg {
+  border-radius: 4px !important;
+  border: 1px solid var(--tm-border) !important;
+  background: var(--tm-panel) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.ticker-track a:hover span {
+  color: var(--tm-accent) !important;
+}
+
+.ui-tabs {
+  border-radius: 2px !important;
+  background: var(--tm-panel-2) !important;
+  border: 1px solid var(--tm-border) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.ui-tab {
+  border-radius: 2px !important;
+}
+
+.ui-tab:hover {
+  background: rgba(167, 139, 250, 0.08) !important;
+  color: var(--tm-accent) !important;
+}
+
+.ui-tab.is-active {
+  color: var(--tm-bg) !important;
+  background: var(--tm-accent) !important;
+  border-color: var(--tm-accent) !important;
+  box-shadow: none !important;
+}
+
+.deals-heading {
+  border-bottom-color: var(--tm-border-strong) !important;
+}
+
+.primary-action-panel {
+  background: var(--tm-panel) !important;
+  border: 1px solid var(--tm-border) !important;
+  border-radius: 4px !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+.primary-action-panel::before {
+  background: none !important;
+}
+
+.primary-action-panel:hover {
+  border-color: var(--tm-border-strong) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.section-head-main::after {
+  background: var(--tm-accent) !important;
+  border-radius: 0 !important;
+  height: 2px !important;
+}
+
+.section-head-main::before {
+  background: var(--tm-accent) !important;
+  border-radius: 0 !important;
+}
+
+.section-title,
+.hero-band .hero-band-excerpt,
+.story-card-row .story-eyebrow,
+.story-card-row .meta-row {
+  font-family: var(--tm-font) !important;
+}
+
+.section-head [class*='eyebrow'],
+.section-head .eyebrow,
+.section-head-main .eyebrow {
+  color: var(--tm-accent) !important;
+  font-family: var(--tm-font) !important;
+}
+
+.eyebrow::before {
+  background: var(--tm-accent) !important;
+}
+
+/* Forum thread redovi iz Neon Glass-a — zadrži terminal ponašanje */
+.thread-row {
+  border-radius: 0 !important;
+  border: 1px solid var(--tm-border) !important;
+  border-left: 2px solid transparent !important;
+  background: var(--tm-panel) !important;
+}
+
+.thread-row:hover {
+  border-left-color: var(--tm-accent) !important;
+  background: var(--tm-panel-2) !important;
+  transform: none !important;
+}
+
+.thread-row:hover .thread-row-title {
+  color: var(--tm-accent) !important;
+}
+
+.thread-row .thread-row-icon {
+  border-radius: 2px !important;
+  box-shadow: none !important;
+}
+
+.thread-row:hover .thread-row-icon {
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+.thread-row .thread-replies,
+.thread-row:hover .thread-replies {
+  color: var(--tm-cyan) !important;
+  font-family: var(--tm-font) !important;
+}
+
+/* Skeleton — flicker umesto shimmera (terminal loading) */
+.ui-skeleton {
+  background: var(--tm-panel-3) !important;
+  border-radius: 2px !important;
+  animation: tm-blink 1.2s steps(2, end) infinite !important;
+}
+
+@keyframes tm-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+/* Fokus — terminal kursor blok, Neon Glass zamenjen */
+:where(a, button, [role='button'], [role='tab'], [role='menuitem'], summary, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--tm-accent) !important;
+  outline-offset: 2px;
+  border-radius: 2px !important;
+  box-shadow: none !important;
+}
+
+.ui-btn:focus-visible,
+.ui-icon-btn:focus-visible,
+.ui-tab:focus-visible,
+.thread-row:focus-visible,
+.story-card-row:focus-visible,
+.deal-card:focus-visible {
+  outline: 2px solid var(--tm-accent) !important;
+  outline-offset: -2px;
+  box-shadow: none !important;
+}
+
+::selection {
+  background: rgba(167, 139, 250, 0.3);
+  color: var(--tm-text);
+}
+
+/* Neon Glass keyframes/animacije — sve ugašeno (terminal je statičan) */
+.hero-band,
+.hero-band .hero-band-media,
+.br-primary {
+  animation: none !important;
+}
+
+@media (max-width: 1023.98px) {
+  .hero-band {
+    border-radius: 4px !important;
+    border-inline: 1px solid var(--tm-border) !important;
+    box-shadow: none !important;
+  }
+}
+
+@media print {
+  .forge-footer,
+  footer.forge-footer {
+    background: #fff !important;
+    color: #000 !important;
+  }
+}
+
+/* Scrollbar kao terminal block cursor */
+:root ::-webkit-scrollbar { width: 10px; height: 10px; }
+:root ::-webkit-scrollbar-track { background: var(--tm-bg-deep); }
+:root ::-webkit-scrollbar-thumb {
+  background: var(--tm-border-strong);
+  border: 2px solid var(--tm-bg-deep);
+}
+:root ::-webkit-scrollbar-thumb:hover { background: var(--tm-accent-dim); }
+
+/* ==========================================================================
+   03. TIPOGRAFIJA
+   ========================================================================== */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--tm-font);
+  font-weight: 600 !important;
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
+}
+
+/* Meta tekst uvek malo zelenkast, mono */
+.text-meta, .text-eyebrow, time, .tabular-nums {
+  font-family: var(--tm-font);
+}
+
+/* ==========================================================================
+   04. DUGMAD, INPUTI, BADGE, TABOVI
+   ========================================================================== */
+button, [role="button"], a[class*="btn"], .ui-btn {
+  font-family: var(--tm-font);
+}
+
+button, .ui-btn {
+  border-radius: 2px !important;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.78rem;
+}
+
+input, textarea, select {
+  font-family: var(--tm-font);
+  border-radius: 2px !important;
+  background: var(--tm-bg-deep) !important;
+  border-color: var(--tm-border) !important;
+  caret-color: var(--tm-accent);
+}
+
+input:focus-visible, textarea:focus-visible, select:focus-visible {
+  border-color: var(--tm-accent) !important;
+  box-shadow: 0 0 0 1px var(--tm-accent) !important;
+  outline: none;
+}
+
+/* Badge → uglasti „tag“ sa [ ] poivotom preko ::before/::after ne ide generički
+   (razbijao bi layout) — dovoljno je oštra ivica + mono */
+[class*="badge"], .ui-badge, [data-slot="badge"] {
+  border-radius: 2px !important;
+  font-family: var(--tm-font);
+  letter-spacing: 0.04em;
+}
+
+/* Tabovi: aktivni tab dobio terminal underscore */
+[role="tab"], [role="tablist"] button {
+  border-radius: 0 !important;
+  font-family: var(--tm-font);
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+}
+
+/* ==========================================================================
+   05. KARTICE, PANELI, MODALI — oštre ivice, bez glass blura
+   ========================================================================== */
+.ui-card, .ui-card-static, .ui-card-elevated, .ui-modal-panel,
+.forum-cat-card, .profile-hero, .auth-shell, [data-slot="card"] {
+  border-radius: 4px !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: 1px solid var(--tm-border) !important;
+}
+
+.ui-card:hover, .ui-card-static:hover, [data-slot="card"]:hover {
+  border-color: var(--tm-border-strong) !important;
+}
+
+/* Naslovi kartica dobijaju `>` prefiks preko ::before (bez diranja JSX-a) */
+.ui-card > h3:first-child::before,
+.forum-cat-card h3:first-child::before {
+  content: "> ";
+  color: var(--tm-accent);
+  font-weight: 600;
+}
+
+/* Navigacija — bez glass-a, čvrsta traka sa donjom ivicom */
+nav.sticky, .mobile-tabbar {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: rgba(7, 7, 12, 0.96) !important;
+  border-bottom: 1px solid var(--tm-border) !important;
+}
+
+/* ==========================================================================
+   06. FORUM REDOVI — terminal tabela: gusti redovi, mono meta, zelena nit
+   ========================================================================== */
+[class*="forum-thread"], .forum-thread-row {
+  border-radius: 0 !important;
+  border-left: 2px solid transparent;
+}
+
+[class*="forum-thread"]:hover, .forum-thread-row:hover {
+  border-left-color: var(--tm-accent);
+  background: var(--tm-panel-2) !important;
+}
+
+/* ==========================================================================
+   07. FOKUS + KEYFRAMES
+   ========================================================================== */
+:focus-visible {
+  outline: 2px solid var(--tm-accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* CRT flicker — suptilan (2 frejma, 4 s), na reduced-motion se gasi */
+@keyframes tm-flicker {
+  0%, 100% { opacity: 1; }
+  50.5% { opacity: 0.985; }
+  51% { opacity: 1; }
+}
+
+:root body {
+  animation: tm-flicker 4s linear infinite;
+}
+
+/* ==========================================================================
+   08. REDUCED MOTION / PRINT
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  :root body { animation: none !important; }
+}
+
+@media print {
+  :root body {
+    background: #fff !important;
+    animation: none !important;
+  }
+}
+
+/* ==========================================================================
+   AUTH — 5.0 TERMINAL ULEPSANJA (izabrane stavke 1, 2, 3, 8, 9, 10)
+   ========================================================================== */
+
+/* --- 1. Boot linija (terminal window chrome + tipkanje) --- */
+.auth-boot {
+  display: block;
+  position: relative;
+  margin-top: 1.25rem;
+  padding: 0;
+  border: 1px solid var(--tm-border);
+  border-radius: 2px;
+  background: var(--tm-bg-deep);
+  font-family: var(--tm-font);
+  font-size: 0.72rem;
+  line-height: 1.3;
+  color: var(--tm-accent);
+}
+
+/* Aside panel: dozvoli skrol kad sadržaj ne staje (npr. kraći ekrani) */
+.auth-aside-inner {
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* Na nižim ekranima smanji razmak da sve stane */
+@media (max-height: 860px) {
+  .auth-aside-copy h2 { font-size: 1.25rem !important; }
+  .auth-aside-perks { gap: 0.35rem !important; }
+  .auth-aside-perks li { padding: 0.45rem 0.6rem !important; }
+}
+
+/* Title bar: ● ● ● levo, naslov centriran preko ::after */
+.auth-boot::before {
+  content: '● ● ●';
+  display: block;
+  padding: 0.35rem 0.6rem;
+  border-bottom: 1px solid var(--tm-border);
+  background: rgba(167, 139, 250, 0.05);
+  font-family: var(--tm-font);
+  font-size: 0.5rem;
+  letter-spacing: 0.22em;
+  color: var(--tm-text-muted);
+}
+
+.auth-boot::after {
+  content: 'nexus@auth:~';
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  top: 0.35rem;
+  font-family: var(--tm-font);
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  color: var(--tm-text-muted);
+  pointer-events: none;
+}
+
+/* Red sa tekstom i kursorom */
+.auth-boot-text {
+  display: inline-block;
+  padding: 0.45rem 0 0.45rem 0.6rem;
+  vertical-align: middle;
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: clip;
+  max-width: calc(100% - 1.2em);
+}
+
+.auth-boot-caret {
+  display: inline-block;
+  vertical-align: middle;
+  width: 0.55em;
+  height: 1em;
+  margin-left: 1px;
+  background: var(--tm-accent);
+  animation: tm-caret-blink 1s steps(2, start) infinite;
+}
+
+@keyframes tm-caret-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-boot-caret { animation: none; }
+}
+
+/* --- 2. ASCII strength bar --- */
+.auth-strength {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.5rem;
+  font-family: var(--tm-font);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+}
+
+.auth-strength-bar {
+  color: var(--tm-accent);
+  /* fiksna mono sirina — bar ne "skače" dok raste */
+  min-width: 7.5em;
+  white-space: pre;
+}
+
+.auth-strength-label {
+  color: var(--tm-text-secondary);
+  text-transform: uppercase;
+  font-size: 0.65rem;
+}
+
+.auth-strength[data-level='empty'] .auth-strength-bar { color: var(--tm-text-muted); }
+.auth-strength[data-level='weak'] .auth-strength-bar { color: var(--tm-red); }
+.auth-strength[data-level='weak'] .auth-strength-label { color: var(--tm-red); }
+.auth-strength[data-level='good'] .auth-strength-bar { color: var(--tm-amber); }
+.auth-strength[data-level='good'] .auth-strength-label { color: var(--tm-amber); }
+.auth-strength[data-level='strong'] .auth-strength-bar { color: var(--tm-accent); }
+.auth-strength[data-level='strong'] .auth-strength-label { color: var(--tm-accent); }
+
+/* --- 3. Tabovi kao terminal segment [ PRIJAVA | REGISTRACIJA ] --- */
+.auth-tabs {
+  background: var(--tm-bg-deep) !important;
+  border: 1px solid var(--tm-border) !important;
+  border-radius: 2px !important;
+}
+
+.auth-tab-pill {
+  background: var(--tm-accent) !important;
+  border-color: var(--tm-accent) !important;
+  border-radius: 0 !important;
+}
+
+.auth-tab {
+  font-family: var(--tm-font) !important;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.72rem !important;
+}
+
+/* Ugaoni bracket-ovi oko cele grupe tabova (::before/::after na kontejneru) */
+.auth-tabs::before,
+.auth-tabs::after {
+  position: absolute;
+  top: -5px;
+  bottom: -5px;
+  width: 6px;
+  content: '';
+  border: 1px solid var(--tm-accent);
+  pointer-events: none;
+}
+
+.auth-tabs::before {
+  left: -5px;
+  border-right: 0;
+}
+
+.auth-tabs::after {
+  right: -5px;
+  border-left: 0;
+}
+
+/* --- 8. Version tag u dnu panela --- */
+.auth-version {
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+  margin-top: auto;
+  padding-top: 1.25rem;
+  font-family: var(--tm-font);
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  color: var(--tm-text-muted);
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+
+/* --- 9. Blok kursor na inputima --- */
+.auth-input-wrap input,
+.auth-card-scroll input {
+  caret-color: var(--tm-accent) !important;
+  caret-shape: block;
+}
+
+/* Placeholder mono */
+.auth-input-wrap input::placeholder {
+  font-family: var(--tm-font);
+  opacity: 0.55;
+}
+
+/* --- 10. Checkbox kao [ ] / [x] --- */
+.auth-remember {
+  position: relative;
+  padding-left: 0;
+}
+
+.auth-remember input[type='checkbox'] {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  width: 1.1em !important;
+  height: 1.1em !important;
+  flex: 0 0 1.1em !important;
+  margin: 0.15em 0 0 !important;
+  background: transparent !important;
+  border: 1px solid var(--tm-border-strong) !important;
+  border-radius: 2px !important;
+  position: relative;
+  cursor: pointer;
+  font-family: var(--tm-font);
+  font-size: 0.75rem;
+  line-height: 1;
+  color: var(--tm-accent);
+  display: inline-grid;
+  place-content: center;
+  transition: border-color 140ms ease, background 140ms ease;
+}
+
+.auth-remember input[type='checkbox']:hover {
+  border-color: var(--tm-accent) !important;
+}
+
+/* Čekirano: terminal "x" u kutiji */
+.auth-remember input[type='checkbox']:checked {
+  background: rgba(167, 139, 250, 0.08) !important;
+  border-color: var(--tm-accent) !important;
+}
+
+.auth-remember input[type='checkbox']:checked::after {
+  content: 'x';
+  color: var(--tm-accent);
+  font-family: var(--tm-font);
+  font-weight: 600;
+  font-size: 0.7em;
+}
+
+.auth-remember input[type='checkbox']:focus-visible {
+  outline: 2px solid var(--tm-accent) !important;
+  outline-offset: 2px !important;
+}
+
+/* Ukloni native checkmark u dark mode-u (Chrome color-scheme) */
+.auth-remember input[type='checkbox']:checked {
+  accent-color: transparent;
+}
+
+/* ==========================================================================
+   AUTH — TERMINAL ULEPSANJA, KRUG 2 (stavke 1, 2, 3, 4, 9, 12)
+   ========================================================================== */
+
+/* --- 2. Username check kao terminal odgovor --- */
+.auth-term-response {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+  font-family: var(--tm-font);
+  font-size: 0.72rem;
+  line-height: 1.3;
+}
+
+.auth-term-cmd {
+  color: var(--tm-text-muted);
+}
+
+.auth-term-result {
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.auth-term-response.is-ok .auth-term-result { color: var(--tm-accent); }
+.auth-term-response.is-bad .auth-term-result { color: var(--tm-red); }
+
+/* "proveravam..." stanje — kursor treperi pored komande */
+.auth-term-response.is-checking .auth-boot-caret {
+  width: 0.5em;
+  height: 0.9em;
+}
+
+/* --- 4. Greške kao terminal output [ERR]/[OK] --- */
+.auth-error {
+  font-family: var(--tm-font);
+  border-left: 2px solid var(--tm-red) !important;
+  border-radius: 0 2px 2px 0 !important;
+  background: rgba(251, 113, 133, 0.06) !important;
+}
+
+.auth-error::before {
+  content: '[ERR]';
+  font-weight: 700;
+  color: var(--tm-red);
+  letter-spacing: 0.06em;
+  flex: 0 0 auto;
+}
+
+/* Success/skelet poruke (auth-result) — [OK] varijanta */
+.auth-result {
+  font-family: var(--tm-font);
+  border-left: 2px solid var(--tm-accent) !important;
+  border-radius: 0 2px 2px 0 !important;
+  background: rgba(167, 139, 250, 0.06) !important;
+}
+
+.auth-result::before {
+  content: '[OK]';
+  font-weight: 700;
+  color: var(--tm-accent);
+  letter-spacing: 0.06em;
+  flex: 0 0 auto;
+}
+
+/* Hint poruke (is-bad) — mini terminal greška, bez [ERR] prefiksa (previše buke) */
+.auth-field-hint.is-bad {
+  font-family: var(--tm-font);
+  color: var(--tm-red) !important;
+}
+
+.auth-field-hint.is-ok {
+  font-family: var(--tm-font);
+}
+
+/* --- 9. MOTD na dnu forme --- */
+.auth-motd {
+  font-family: var(--tm-font);
+  font-size: 0.68rem;
+  letter-spacing: 0.02em;
+  color: var(--tm-text-muted);
+  text-align: center;
+  margin: 0.9rem 0 0;
+  opacity: 0.8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* --- 12. Fokus marker ">" na poljima --- */
+.auth-field {
+  position: relative;
+}
+
+/* Marker levo od ivice inputa kad je wrap fokusiran */
+.auth-input-wrap::before {
+  content: '>';
+  position: absolute;
+  left: -1.05em;
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: var(--tm-font);
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--tm-accent);
+  opacity: 0;
+  transition: opacity 120ms ease;
+  pointer-events: none;
+}
+
+.auth-input-wrap:focus-within::before {
+  opacity: 1;
+}
+
+/* Fokus wrap ivica — terminal, bez cyan glow-a */
+.auth-input-wrap:focus-within {
+  border-color: var(--tm-accent) !important;
+  box-shadow: none !important;
+}
+
+/* Submit kao komanda — već ima mono iz globalnih pravila; dodaj $ prefixvizuelno */
+.auth-submit {
+  font-family: var(--tm-font) !important;
+  text-transform: lowercase !important;
+  letter-spacing: 0.03em !important;
+}
+
+/* ASCII spinner (loading): Loader2 ikona rotira — zameni je mono frejmovima */
+.auth-submit.is-loading .auth-submit-spinner {
+  display: none;
+}
+
+.auth-submit.is-loading > span::before {
+  content: '| ';
+  animation: tm-spin-ascii 400ms steps(4) infinite;
+  color: var(--tm-bg-deep);
+  font-weight: 700;
+}
+
+@keyframes tm-spin-ascii {
+  0% { content: '| '; }
+  25% { content: '/ '; }
+  50% { content: '- '; }
+  75% { content: '\\ '; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-submit.is-loading > span::before {
+    content: '· ';
+    animation: none;
+  }
+}
+
+/* ==========================================================================
+   GLOBALNO — KRUG 3: profil (whoami/syslog), search (grep), loading, notifikacije
+   ========================================================================== */
+
+/* --- 2. PROFIL: whoami linija iznad PlayerCard-a (CSS-only, bez JSX) --- */
+/* PlayerCard meta red (karma, clan od) → terminal whoami format */
+.profile-hero .meta-row {
+  font-family: var(--tm-font);
+  font-size: 0.72rem;
+}
+
+.profile-hero .meta-row svg {
+  display: none;
+}
+
+/* Stat tile-ovi — mono brojevi sa [ ] tag lookom */
+.profile-hero .ui-stat-tile,
+.profile-hero [class*='StatTile'] {
+  font-family: var(--tm-font);
+  border-radius: 2px !important;
+}
+
+/* XP progress bar u hero-u → ASCII stil (zadržava fill, menja skin) */
+.profile-xp-track,
+.profile-hero [class*='xp'] {
+  border-radius: 0 !important;
+}
+
+/* LevelCard — cyan/violet gradijent tekst → čist mono violet */
+.level-card,
+[class*='LevelCard'] .font-display {
+  font-family: var(--tm-font) !important;
+}
+
+/* Badge grid → file listing look */
+.profile-badges,
+[class*='badges-grid'] {
+  font-family: var(--tm-font);
+}
+
+/* --- 7. NOTIFIKACIJE: syslog look --- */
+/* Grupni naslovi: [NOVO] / [ODGOVORI] tag format */
+.notifications-page h2,
+.section h2[id^='group-'] {
+  font-family: var(--tm-font) !important;
+}
+
+.section h2[id^='group-']::before {
+  content: '[';
+  color: var(--tm-text-muted);
+}
+
+.section h2[id^='group-']::after {
+  content: ']';
+  color: var(--tm-text-muted);
+}
+
+/* Red notifikacije: mono timestamp levo, [+] indikator nepročitane */
+ul.rounded-xl > li .font-mono.text-micro {
+  font-family: var(--tm-font);
+  color: var(--tm-text-muted);
+}
+
+/* nepročitana — leve 2px violet ivice umesto bg tinta */
+li.bg-\[var\(--color-primary-subtle\)\] {
+  border-left: 2px solid var(--tm-accent) !important;
+}
+
+/* --- 8. LOADING: terminal spinner u skeletonima i ErrorState --- */
+.ui-state-box {
+  font-family: var(--tm-font);
+}
+
+.ui-state-box .ui-state-icon {
+  display: none;
+}
+
+/* [ERR] prefiks na ErrorState naslovu */
+.ui-state-box [role='alert'] .ui-state-title::before,
+.ui-state-box .ui-state-icon-error ~ .ui-state-title::before {
+  content: '[ERR] ';
+  color: var(--tm-red);
+  font-weight: 700;
+}
+
+/* Skeleton redovi već trepere (tm-blink iz kruga 1) — samo oštriji ugao */
+.ui-skeleton,
+[class*='Skeleton'] {
+  border-radius: 2px !important;
+}
+
+/* EmptyState — mono + $ prefiks */
+.ui-state-title {
+  font-family: var(--tm-font) !important;
+}
+
+/* "$ loading..." indikator na svakom skeleton kontejneru preko ::before na parentu */
+[data-loading='true']::before,
+.skeleton-rows::before {
+  content: '$ ucitavanje...';
+  display: block;
+  font-family: var(--tm-font);
+  font-size: 0.72rem;
+  color: var(--tm-accent);
+  margin-bottom: 0.5rem;
+  animation: tm-caret-blink 1.4s steps(2, start) infinite;
+}
+
+/* --- 5. SEARCH PALETTE kao grep --- */
+/* Kontejner — već terminal kroz globalna pravila (ui-modal-panel). Ovde samo
+   specifičnosti: grep prompt, mono rezultati, [TYPE] tagovi. */
+[aria-label='Globalna pretraga'] {
+  font-family: var(--tm-font) !important;
+  border-radius: 4px !important;
+}
+
+/* Input row → grep prompt */
+[aria-label='Globalna pretraga'] input {
+  font-family: var(--tm-font) !important;
+  text-transform: none !important;
+  font-size: 0.85rem !important;
+}
+
+/* Lupa ikona → zameni je "$" prompt markerom */
+[aria-label='Globalna pretraga'] input ~ svg:first-of-type,
+[aria-label='Globalna pretraga'] .lucide-search {
+  display: none !important;
+}
+
+/* Unos red — bez globalnog input treta (nema crnog box-a), grep prompt levo */
+[aria-label='Globalna pretraga'] input {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+  height: 3rem;
+  font-size: 0.9rem !important;
+  padding: 0 !important;
+}
+
+/* Fokus se nosi kontejner (border-left palette), ne input — bez okvira oko polja */
+[aria-label='Globalna pretraga'] input:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+/* Zatvaranje (X) — vidljiva ikona u terminal stilu */
+[aria-label='Globalna pretraga'] .ui-icon-btn,
+[aria-label='Zatvori pretragu'] {
+  color: var(--tm-text-secondary) !important;
+  background: transparent !important;
+  border-color: transparent !important;
+}
+
+[aria-label='Zatvori pretragu']:hover {
+  color: var(--tm-accent) !important;
+  background: rgba(167, 139, 250, 0.08) !important;
+}
+
+/* "$" grep prompt ispred inputa */
+[aria-label='Globalna pretraga'] input::before,
+[aria-label='Globalna pretraga'] .border-b svg {
+  display: none;
+}
+
+[aria-label='Globalna pretraga'] > div:first-child::before {
+  content: '$';
+  font-family: var(--tm-font);
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--tm-accent);
+  flex: 0 0 auto;
+}
+
+/* Scope tabovi → mono, sa [ ] */
+[aria-label='Vrsta sadržaja'] button {
+  font-family: var(--tm-font) !important;
+  border-radius: 2px !important;
+  text-transform: uppercase;
+  font-size: 0.65rem !important;
+  letter-spacing: 0.08em;
+}
+
+[aria-label='Vrsta sadržaja'] button[aria-selected='true'] {
+  background: var(--tm-accent) !important;
+  color: var(--tm-bg-deep) !important;
+}
+
+/* Tip rezultata (Članak/Tema/...) → [ČLANAK] tag */
+[aria-label='Globalna pretraga'] .font-mono.text-\[10px\] {
+  font-family: var(--tm-font);
+  color: var(--tm-accent) !important;
+}
+
+/* Rezultat hover — terminal highlight, bez rounded-lg blago */
+[aria-label='Globalna pretraga'] button[role='option'] {
+  border-radius: 2px !important;
+  border-left: 2px solid transparent;
+}
+
+[aria-label='Globalna pretraga'] button[role='option'][aria-selected='true'],
+[aria-label='Globalna pretraga'] button[role='option']:hover {
+  background: var(--tm-panel-2) !important;
+  border-left-color: var(--tm-accent);
+}
+
+/* Footer: ↑↓ biraj · Enter otvori — mono, već jeste; samo boja */
+[aria-label='Globalna pretraga'] .border-t span {
+  color: var(--tm-text-muted) !important;
+}
+
+/* "traži..." indicator → mono treperenje */
+[aria-label='Globalna pretraga'] .font-mono.text-\[10px\].uppercase {
+  animation: tm-caret-blink 1.2s steps(2, start) infinite;
+}
+
+/* --- 2b. PROFIL: whoami linija --- */
+.profile-whoami {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 1.25rem;
+  font-family: var(--tm-font);
+  font-size: 0.72rem;
+  border-bottom: 1px solid var(--tm-border);
+  background: rgba(7, 7, 12, 0.5);
+}
+
+.profile-whoami-cmd {
+  color: var(--tm-accent);
+  font-weight: 600;
+}
+
+.profile-whoami-cmd::after {
+  content: ' →';
+  color: var(--tm-text-muted);
+  font-weight: 400;
+}
+
+.profile-whoami-out {
+  color: var(--tm-text-secondary);
+  letter-spacing: 0.02em;
+}
+
+/* Na malim ekranima whoami ide u jedan red sa manjim fontom */
+@media (max-width: 639.98px) {
+  .profile-whoami {
+    font-size: 0.62rem;
+    gap: 0.4rem;
+    padding-inline: 1rem;
+  }
+}
+
+/* ==========================================================================
+   FOOTER — TERMINAL (stavke 3, 4, 6, 8, 9, 10)
+   ========================================================================== */
+
+/* --- 3. Linkovi kao komande: `>` prefiks preko ::before --- */
+.footer-cmds li {
+  display: flex;
+  align-items: baseline;
+}
+
+.footer-cmd::before {
+  content: '>';
+  margin-right: 0.5em;
+  color: var(--tm-text-muted);
+  font-family: var(--tm-font);
+  font-weight: 600;
+  transition: color 140ms ease;
+}
+
+.footer-cmd:hover::before {
+  color: var(--tm-accent);
+}
+
+.footer-cmd {
+  font-family: var(--tm-font);
+  font-size: 0.75rem;
+}
+
+/* kursor ▮ na kraju hover-ovanog linka */
+.footer-cmd::after {
+  content: '';
+  display: inline-block;
+  width: 0.5em;
+  height: 0.9em;
+  margin-left: 0.35em;
+  background: var(--tm-accent);
+  opacity: 0;
+  vertical-align: text-bottom;
+  transition: opacity 120ms ease;
+}
+
+.footer-cmd:hover::after {
+  opacity: 1;
+  animation: tm-caret-blink 1s steps(2, start) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .footer-cmd:hover::after { animation: none; }
+}
+
+/* --- 6. Path naslovi kolona --- */
+.footer-path {
+  color: var(--tm-accent) !important;
+  text-transform: none !important;
+  letter-spacing: 0.04em !important;
+}
+
+.footer-path::before {
+  content: '$ ls ';
+  color: var(--tm-text-muted);
+  font-weight: 400;
+}
+
+/* --- 4. Social ikone kao mono tagovi [discord] [steam] [twitch] --- */
+.footer-socials {
+  display: flex;
+  gap: 0.5rem;
+  font-family: var(--tm-font);
+  font-size: 0.7rem;
+}
+
+.footer-social-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  padding: 0.3rem 0.55rem;
+  border: 1px solid var(--tm-border);
+  border-radius: 2px;
+  background: var(--tm-bg-deep);
+  color: var(--tm-text-secondary);
+  text-transform: lowercase;
+  transition: border-color 140ms ease, color 140ms ease;
+}
+
+.footer-social-tag svg {
+  width: 12px;
+  height: 12px;
+}
+
+.footer-social-tag:hover {
+  border-color: var(--tm-accent);
+  color: var(--tm-accent);
+}
+
+/* --- 8. Version tag sa tooltip-om --- */
+.footer-version {
+  position: relative;
+  display: inline-block;
+  margin-top: 0.75rem;
+  cursor: default;
+}
+
+.footer-version-tip {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 6px);
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--tm-border-strong);
+  border-radius: 2px;
+  background: var(--tm-bg-deep);
+  color: var(--tm-text-secondary);
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(3px);
+  pointer-events: none;
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.footer-version:hover .footer-version-tip,
+.footer-version:focus-visible .footer-version-tip {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* --- 9. Sys status --- */
+.footer-sys {
+  letter-spacing: 0.03em;
+}
+
+.footer-sys span {
+  color: var(--tm-accent);
+}
+
+/* --- 10. Scroll-to-top dugme --- */
+.footer-top {
+  border: 1px solid var(--tm-border);
+  border-radius: 2px;
+  padding: 0.25rem 0.6rem;
+  background: transparent;
+  cursor: pointer;
+  transition: border-color 140ms ease, color 140ms ease;
+}
+
+.footer-top:hover {
+  border-color: var(--tm-accent);
+  color: var(--tm-accent) !important;
+}
+
+.footer-top:active {
+  background: rgba(167, 139, 250, 0.08);
+}
+
+/* ==========================================================================
+   KRUG 5 — 7: 404 KERNEL PANIC + 4: THREAD kao terminal log
+   ========================================================================== */
+
+/* --- 7. 404 kernel panic --- */
+.nf-panic {
+  max-width: 640px;
+  border: 1px solid var(--tm-border);
+  border-radius: 2px;
+  background: var(--tm-bg-deep);
+  font-family: var(--tm-font);
+  overflow: hidden;
+}
+
+.nf-panic-bar {
+  display: flex;
+  align-items: center;
+  padding: 0.35rem 0.6rem;
+  border-bottom: 1px solid var(--tm-border);
+  background: rgba(251, 113, 133, 0.06);
+}
+
+.nf-panic-dots {
+  font-size: 0.5rem;
+  letter-spacing: 0.22em;
+  color: var(--tm-text-muted);
+}
+
+.nf-panic-title {
+  margin-left: 0.9rem;
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  color: var(--tm-text-muted);
+}
+
+.nf-panic-out {
+  margin: 0;
+  padding: 0.7rem 0.75rem;
+  font-family: var(--tm-font);
+  font-size: 0.72rem;
+  line-height: 1.7;
+  color: var(--tm-text-secondary);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.nf-panic-out .nf-panic-err {
+  color: var(--tm-red);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+/* Prva linija trace-a ($ cd /...) — muted */
+.nf-panic-out::first-line {
+  color: var(--tm-text-muted);
+}
+
+/* ==========================================================================
+   LEGAL STRANICE (Terms/Privacy/Rules) — ceo dokument u mono.
+   Inter/Inter Tight na ovim stranicama ne renderuje glyphove (samo mono
+   prolazi) — Terminal dizajn ionako traži mono, pa se problem izbegava.
+   ========================================================================== */
+article .page-title,
+article .text-lead,
+article .text-meta,
+article .article-rich-content,
+.article-rich-content h2,
+.article-rich-content p,
+.article-rich-content li,
+.article-rich-content blockquote {
+  font-family: var(--tm-font) !important;
+}
+
+/*
+ * NUKLEARNO — bilo koji mehanizam sakrivanja teksta na legal stranicama
+ * (animation fill, clip-path, mask, text-fill, content-visibility, contain)
+ * se ovde eksplicitno gasi. Screenshot debug je pokazao da tekst ima layout
+ * box i computed boje, ali se ne iscrtava — pa svaki kandidat gasimo po imenu.
+ */
+article .page-title,
+article .text-lead,
+article .text-meta,
+article .eyebrow,
+article .article-rich-content,
+.article-rich-content,
+.article-rich-content h2,
+.article-rich-content p,
+.article-rich-content li,
+.article-rich-content blockquote,
+article header,
+article section {
+  opacity: 1 !important;
+  animation: none !important;
+  transform: none !important;
+  clip-path: none !important;
+  -webkit-clip-path: none !important;
+  mask-image: none !important;
+  -webkit-mask-image: none !important;
+  filter: none !important;
+  content-visibility: visible !important;
+  contain: none !important;
+  visibility: visible !important;
+  -webkit-text-fill-color: currentcolor !important;
+}
+
+/* --- 4. THREAD STRANA kao terminal log --- */
+
+/* Post/komentar kartica → log entry: leva ivica, oštri uglovi */
+article[class*='rounded-2xl'],
+[class*='comment-card'],
+.nx-comment {
+  border-radius: 2px !important;
+  border-left: 2px solid var(--tm-border) !important;
+  background: var(--tm-panel) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+article[class*='rounded-2xl']:hover,
+[class*='comment-card']:hover {
+  border-left-color: var(--tm-accent) !important;
+}
+
+/* Autor red → terminal header: @user · vreme */
+[class*='comment'] .text-\[13px\].font-semibold,
+article .text-\[13px\].font-semibold {
+  font-family: var(--tm-font) !important;
+}
+
+/* @ prefiks na autoru preko ::before (prvi span sa autorom) */
+[class*='comment-header'] > span:first-child::before,
+article .mb-2 > span.font-semibold:first-of-type::before {
+  content: '@';
+  color: var(--tm-accent);
+}
+
+/* meta-time → mono, muted */
+.meta-time {
+  font-family: var(--tm-font) !important;
+  color: var(--tm-text-muted) !important;
+}
+
+/* Vote box → [+] / [-] mono dugmići */
+.vote-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.vote-btn {
+  font-family: var(--tm-font);
+  border-radius: 2px !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  color: var(--tm-text-muted) !important;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+
+.vote-btn:hover {
+  color: var(--tm-accent) !important;
+  border-color: var(--tm-border-strong) !important;
+  background: var(--tm-panel-2) !important;
+}
+
+.vote-btn.is-up {
+  color: var(--tm-accent) !important;
+  border-color: rgba(167, 139, 250, 0.4) !important;
+}
+
+.vote-btn.is-down {
+  color: var(--tm-red) !important;
+  border-color: rgba(251, 113, 133, 0.4) !important;
+}
+
+/* Vote dugmad → [+] / [-] znak preko ::before, strelice sakrivene */
+.vote-btn svg {
+  display: none;
+}
+
+.vote-btn::before {
+  font-family: var(--tm-font);
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.vote-btn:first-child::before { content: '[+]'; }
+.vote-btn:last-child::before { content: '[-]'; }
+
+.vote-count {
+  font-family: var(--tm-font) !important;
+  color: var(--tm-text-primary) !important;
+}
+
+/* Odgovor editor → komandna linija sa > prefiksom */
+[class*='reply-editor'] textarea,
+form textarea.ui-field {
+  font-family: var(--tm-font);
+}
+
+form .ui-field:focus,
+[class*='editor'] textarea:focus {
+  border-color: var(--tm-accent) !important;
+  box-shadow: none !important;
+}
+
+/* Reply dugme "Odgovori" → $ odgovori --reply */
+[class*='reply'] .ui-btn.br-primary span {
+  font-family: var(--tm-font);
+}
+
+/* Tags → [tag] format */
+[class*='thread-tags'] a,
+[class*='thread-tags'] span {
+  font-family: var(--tm-font);
+}
+
+/* Related/deals kartice u thread strani — već pokrivene globalnim pravilima */
+
+/* Breadcrumb na vrhu → path stil */
+nav[aria-label='breadcrumb'] a,
+nav[aria-label='breadcrumb'] span {
+  font-family: var(--tm-font);
+}
+
+nav[aria-label='breadcrumb'] span::before {
+  content: '~/';
+  color: var(--tm-text-muted);
+}
+
+/* Spoiler/opasne poruke → terminal [WARN] */
+[class*='spoiler'],
+.badge-error {
+  font-family: var(--tm-font);
+}
+
+/* Thread naslov — bez uppercase (duži naslovi), mono weight 600 */
+article h1 {
+  text-transform: none !important;
+  letter-spacing: -0.01em !important;
+}

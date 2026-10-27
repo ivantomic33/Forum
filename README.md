@@ -1,5 +1,10 @@
 # 🎮 NEXUS GAMING PORTAL & FORUM
 
+> **⚠️ Ovaj README je arhiva starijeg stanja (2.6.1) — NIJE izvor istine.**
+> Aktuelna uputstva (instalacija / pokretanje / stack) su u **[`README.new.md`](README.new.md)**;
+> API oblik je u [`contracts/index.ts`](contracts/index.ts), šema u [`server/schema-ALL.sql`](server/schema-ALL.sql),
+> a pomoćne skripte u [`scripts/qa/`](scripts/qa/README.md).
+
 Napredni gejming portal visoke estetske vrednosti sa modernim **dark-mode cyber-gaming dizajnom**, **staklomorfnim (glass morphism) efektima**, **neonskim akcentima** i **3D gejmifikovanim elementima**.
 
 ---
@@ -281,6 +286,10 @@ U razvoju server ispisuje **jedan red po zahtevu**:
 Legacy alias-i (`--color-neon`, `--color-cyan`, `--color-accent-green`...) zadržani su radi
 kompatibilnosti i pokazuju na primarnu/sekundarnu/semantičku boju — nema treće "treće" boje.
 
+---
+
+> **Sve ostalo (instalacija, pokretanje, stack) → [`README.new.md`](README.new.md).**
+
 ### **Tipografija**:
 
 | Uloga | Font | Gde |
@@ -393,6 +402,7 @@ Forum/
 - `GET /api/articles?limit=&offset=&category=&search=&featured=` — lista sa paginacijom (`total`, `hasMore`)
 - `GET /api/articles/ticker` — naslovi za breaking-news traku (iz stvarnih članaka + tema)
 - `GET /api/articles/:slug` — pojedinačni članak
+- `POST /api/articles/ingest` — Uvoz vesti iz automatizacije (n8n RSS bot), header `X-Ingest-Key`, dedupe po `sourceUrl` — uputstvo: [`docs/n8n-rss-bot.md`](docs/n8n-rss-bot.md)
 - `POST /api/articles` — Kreiraj članak (admin/moderator)
 - `PUT /api/articles/:id` — Ažuriraj članak (admin/moderator)
 - `DELETE /api/articles/:id` — Obriši članak (admin)
@@ -498,7 +508,10 @@ Frontend rute za linkove iz mejla: `/forgot-password`, `/reset?token=`, `/verify
 ### **Backend TODO:**
 - [ ] Email notifikacije (Newsletter + verifikacija/reset) preko provajdera — tokeni su spremni, fali SMTP
 - [ ] Pokrenuti `server/schema-ALL.sql` u Supabase SQL Editor-u (RLS je deny-by-default; server koristi service key)
-- [ ] Perzistentno skladište za dnevni XP budžet (trenutno u memoriji procesa)
+  - Veliki fajl se u Editoru pušta kao JEDNA transakcija i prikazuje samo poslednji `SELECT`. Zato: `npm run schema:split` (u `server/`) → `server/sql/00-…` … `18-…`, pa jedan po jedan;
+  - pre puštanja: `npm run schema:verify` — hvata mojibake, `/** */` komentare, poziv funkcije pre definicije i neidempotentne naredbe
+- [x] Perzistentno skladište za dnevni XP budžet — `xp_budget (user_id, day, xp)` + RPC `spend_daily_xp` (N-09)
+- [ ] Pokrenuti `server/schema-2.6.4-sharing.sql` (N-09/B-15) — deo `schema-ALL.sql`; bez njega XP budžet, pending 2FA i prisustvo padaju na memoriju procesa
 
 ### **Database TODO:**
 - [ ] Kreirati stored procedure za automatsko povećanje XP-a

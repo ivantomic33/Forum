@@ -77,6 +77,35 @@ describe.skipIf(db.kind !== 'memory')('thread subscriptions (in-memory)', () => 
     const followers = await db.subscriptions.followers(THREAD);
     expect(followers).toEqual(expect.arrayContaining([USER_A, USER_B]));
   });
+
+  /** F-7.1 #8 — mejl je opcija praćenja, ne novo praćenje. */
+  it('email_on_reply: mejl prati samo onaj ko ga je tražio', async () => {
+    await db.subscriptions.follow(USER_A, THREAD, true);
+    await db.subscriptions.follow(USER_B, THREAD);
+
+    expect(await db.subscriptions.isEmailOnReply(USER_A, THREAD)).toBe(true);
+    expect(await db.subscriptions.isEmailOnReply(USER_B, THREAD)).toBe(false);
+    expect(await db.subscriptions.emailFollowers(THREAD)).toEqual([USER_A]);
+    // Oba su pratioci (in-app) bez obzira na mejl.
+    expect(await db.subscriptions.followers(THREAD)).toEqual(expect.arrayContaining([USER_A, USER_B]));
+  });
+
+  it('setEmailOnReply menja postojeće praćenje i pada za nepraćeno', async () => {
+    await db.subscriptions.follow(USER_A, THREAD, true);
+    expect(await db.subscriptions.setEmailOnReply(USER_A, THREAD, false)).toBe(true);
+    expect(await db.subscriptions.emailFollowers(THREAD)).toEqual([]);
+    // Praćenje ostaje — gasi se samo mejl.
+    expect(await db.subscriptions.isFollowing(USER_A, THREAD)).toBe(true);
+
+    expect(await db.subscriptions.setEmailOnReply(USER_B, 'thr_never_followed', true)).toBe(false);
+  });
+
+  it('unfollow briše i mejl opciju', async () => {
+    await db.subscriptions.follow(USER_A, THREAD, true);
+    await db.subscriptions.unfollow(USER_A, THREAD);
+    expect(await db.subscriptions.isEmailOnReply(USER_A, THREAD)).toBe(false);
+    expect(await db.subscriptions.emailFollowers(THREAD)).toEqual([]);
+  });
 });
 
 describe.skipIf(db.kind !== 'memory')('quests (in-memory)', () => {

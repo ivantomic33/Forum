@@ -11,7 +11,12 @@
     "moduleDetection": "force",
     "noEmit": true,
     "strict": true,
-    "types": ["node"]
+    "types": ["node"],
+    // N10 — `contracts/` uvozi `zod`, koji je zavisnost servera (jedan `node_modules`).
+    "baseUrl": ".",
+    "paths": {
+      "zod": ["./server/node_modules/zod"]
+    }
   },
-  "include": ["vite.config.ts", "server/**/*.ts"]
+  "include": ["vite.config.ts", "scripts/*.d.mts"]
 }

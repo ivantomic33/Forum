@@ -5,13 +5,17 @@ import {
   Copy,
   KeyRound,
   Loader2,
+  MonitorSmartphone,
   QrCode,
   ShieldCheck,
   ShieldOff,
   Smartphone,
+  Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
+import { useT } from '../../lib/i18n';
+import { SettingsSection, SettingsDivider } from './SettingsSection';
 
 /**
  * F-33 — Sigurnost naloga u podešavanjima profila.
@@ -23,6 +27,34 @@ import { api } from '../../lib/api';
  * Isključivanje traži lozinku i važeći kod.
  */
 type Status = { enabled: boolean; enabledAt: string | null; recoveryCodesLeft: number; lockedUntil: string | null };
+
+/** F-15 — zapamćeni uređaj (bez hash-eva). */
+type TrustedDevice = {
+  id: string;
+  deviceId: string;
+  userAgent: string | null;
+  createdAt: string;
+  expiresAt: string;
+  lastUsedAt: string | null;
+};
+
+/** `Chrome · Windows` iz User-Agent-a — dovoljno da korisnik prepozna uređaj. */
+function describeDevice(userAgent: string | null): string {
+  if (!userAgent) return 'Nepoznat uređaj';
+  const browser =
+    /Edg\//.test(userAgent) ? 'Edge'
+      : /OPR\//.test(userAgent) ? 'Opera'
+        : /Firefox\//.test(userAgent) ? 'Firefox'
+          : /Chrome\//.test(userAgent) ? 'Chrome'
+            : /Safari\//.test(userAgent) ? 'Safari' : 'Browser';
+  const os =
+    /Windows/.test(userAgent) ? 'Windows'
+      : /iPhone|iPad/.test(userAgent) ? 'iOS'
+        : /Android/.test(userAgent) ? 'Android'
+          : /Mac OS X/.test(userAgent) ? 'macOS'
+            : /Linux/.test(userAgent) ? 'Linux' : 'Nepoznat OS';
+  return `${browser} · ${os}`;
+}
 
 function CopyButton({ value, label }: { value: string; label: string }) {
   const [copied, setCopied] = useState(false);
@@ -87,6 +119,7 @@ function RecoveryCodes({ codes, onDone }: { codes: string[]; onDone: () => void 
 }
 
 export function AccountSecuritySection() {
+  const t = useT();
   const [status, setStatus] = useState<Status | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<'setup' | 'enable' | 'disable' | 'recovery' | null>(null);
@@ -102,6 +135,50 @@ export function AccountSecuritySection() {
   const [disablePassword, setDisablePassword] = useState('');
   const [disableCode, setDisableCode] = useState('');
 
+  // F-15 — trusted uređaji
+  const [devices, setDevices] = useState<TrustedDevice[]>([]);
+  const [currentDeviceId, setCurrentDeviceId] = useState<string | null>(null);
+  const [ttlDays, setTtlDays] = useState(30);
+  const [devicesBusy, setDevicesBusy] = useState(false);
+
+  const loadDevices = useCallback(async () => {
+    try {
+      const res = await api.auth.twoFactor.devices();
+      setDevices(res.devices);
+      setCurrentDeviceId(res.currentDeviceId);
+      setTtlDays(res.ttlDays || 30);
+    } catch {
+      // Tabela još ne postoji (`schema-ALL.sql` nije pušten) — sekcija se skriva.
+      setDevices([]);
+    }
+  }, []);
+
+  const forgetDevice = async (deviceId: string) => {
+    setDevicesBusy(true);
+    try {
+      await api.auth.twoFactor.forgetDevice(deviceId);
+      setDevices((list) => list.filter((device) => device.deviceId !== deviceId));
+      toast.success('Uređaj više neće preskakati 2FA.');
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Uređaj nije mogao da se ukloni.');
+    } finally {
+      setDevicesBusy(false);
+    }
+  };
+
+  const forgetAllDevices = async () => {
+    setDevicesBusy(true);
+    try {
+      const res = await api.auth.twoFactor.forgetAllDevices();
+      setDevices([]);
+      toast.success(res.removed > 0 ? `Zaboravljeno uređaja: ${res.removed}.` : 'Nema zapamćenih uređaja.');
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Uređaji nisu mogli da se uklone.');
+    } finally {
+      setDevicesBusy(false);
+    }
+  };
+
   const loadStatus = useCallback(async () => {
     try {
       setStatus(await api.auth.twoFactor.status());
@@ -114,7 +191,8 @@ export function AccountSecuritySection() {
 
   useEffect(() => {
     loadStatus();
-  }, [loadStatus]);
+    void loadDevices();
+  }, [loadStatus, loadDevices]);
 
   const beginSetup = async () => {
     setError(null);
@@ -186,26 +264,21 @@ export function AccountSecuritySection() {
   };
 
   return (
-    <div className="mt-6 space-y-4 rounded-md border border-white/10 bg-surface-0 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h4 className="flex items-center gap-2 text-sm font-bold text-white/85">
-            <ShieldCheck size={15} /> Dvofaktorska autentifikacija (2FA)
-          </h4>
-          <p className="mt-1 text-xs leading-relaxed text-white/55">
-            Dodatna zaštita: uz lozinku se traži i jednokratni kod iz Google Authenticator, Authy ili
-            slične aplikacije. Preporučeno za moderatore i administratore.
-          </p>
-        </div>
-        {!loading && status && (
+    <SettingsSection
+      icon={<ShieldCheck />}
+      title="Dvofaktorska autentifikacija (2FA)"
+      description="Uz lozinku se traži i jednokratni kod iz autentifikacione aplikacije. Preporučeno za moderatore i administratore."
+      badge={
+        !loading && status ? (
           <span
             className={`flex-shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${status.enabled ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/[0.06] text-white/50'
               }`}
           >
             {status.enabled ? 'Uključena' : 'Isključena'}
           </span>
-        )}
-      </div>
+        ) : undefined
+      }
+    >
 
       {error && (
         <p role="alert" className="text-xs text-red-400">
@@ -391,6 +464,73 @@ export function AccountSecuritySection() {
           )}
         </div>
       )}
-    </div>
+
+      {/* ---------- F-15 — zapamćeni uređaji ---------- */}
+      {!loading && status?.enabled && (
+        <>
+          <SettingsDivider />
+          <div>
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <p className="flex items-center gap-2 text-xs font-bold text-white/80">
+                <MonitorSmartphone size={14} /> {t('security.trustedDevicesCount', { count: devices.length })}
+              </p>
+              <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+                {t('security.trustedDevicesHint', { days: ttlDays })}
+              </p>
+            </div>
+            {devices.length > 0 && (
+              <button
+                type="button"
+                className="ui-btn br-ghost ui-btn-sm text-red-300"
+                disabled={devicesBusy}
+                onClick={forgetAllDevices}
+              >
+                {devicesBusy ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                Zaboravi sve
+              </button>
+            )}
+          </div>
+
+          {devices.length === 0 ? (
+            <p className="mt-2 text-xs text-[var(--color-text-muted)]">{t('security.noTrustedDevices')}</p>
+          ) : (
+            <ul className="mt-2 space-y-1.5">
+              {devices.map((device) => (
+                <li
+                  key={device.deviceId}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded border-white/5 bg-white/[0.03] px-2.5 py-2"
+                >
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-white/85">
+                      {describeDevice(device.userAgent)}
+                      {device.deviceId === currentDeviceId && (
+                        <span className="ml-2 rounded-full bg-cyan-500/15 px-2 py-0.5 text-[10px] font-semibold text-cyan-300">
+                          {t('security.thisDevice')}
+                        </span>
+                      )}
+                    </p>
+                    <p className="text-[11px] text-[var(--color-text-muted)]">
+                      {t('security.lastLogin')}: {device.lastUsedAt ? new Date(device.lastUsedAt).toLocaleDateString('sr-Latn-RS') : '—'}
+                      {' · '}{t('security.validUntil')}: {new Date(device.expiresAt).toLocaleDateString('sr-Latn-RS')}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="ui-btn br-ghost ui-btn-sm"
+                    disabled={devicesBusy}
+                    onClick={() => forgetDevice(device.deviceId)}
+                    aria-label={`Zaboravi uređaj ${describeDevice(device.userAgent)}`}
+                  >
+                    <Trash2 size={13} /> {t('security.forgetDevice')}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        </>
+      )}
+    </SettingsSection>
   );
 }

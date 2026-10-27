@@ -1,0 +1,38 @@
+/**
+ * SLOJ 3 — RANG-LISTA (skeleton + tabela + podijum)
+ */
+@layer components-leaderboard {
+
+  /* ——— Rang lista: hover je samo podloga + 2px primarna nit ——— */
+  .leader-row {
+    transition: background-color var(--dur-fast) var(--ease-forge);
+  }
+
+  .leader-row:hover {
+    background: var(--color-surface-3);
+    box-shadow: inset 2px 0 0 var(--color-primary-fg);
+  }
+
+  .leader-row:hover .leader-name {
+    color: var(--color-text-primary);
+  }
+
+  .rank-pos {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.75rem;
+    height: 1.75rem;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-family-mono);
+    font-size: var(--text-meta);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-text-secondary);
+  }
+
+  .rank-pos.is-top {
+    background: var(--color-primary-muted);
+    color: var(--color-primary-fg);
+  }
+}

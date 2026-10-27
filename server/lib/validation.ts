@@ -8,7 +8,21 @@
 
 export const PASSWORD_MIN_LENGTH = 8;
 export const PASSWORD_MAX_LENGTH = 72; // bcrypt ignoriše bajtove posle 72
-export const BCRYPT_COST = 12;
+
+/**
+ * B22 — cost 12 (proizvodnja) / 4 (testovi).
+ *
+ * Cost 12 traje ~250 ms po hash-u; integracioni testovi registruju desetine
+ * naloga, pa je `vitest run` provodio vreme na bcrypt-u, a ne na logici.
+ * Eksplicitno preko `BCRYPT_COST`; podrazumevano 4 kada je `NODE_ENV=test`.
+ * Rehash pri prijavi (`getRounds < BCRYPT_COST`) u testovima zato NE dira
+ * produkcijske hash-eve — šeme su iste, samo je „kost“ niža.
+ */
+export const BCRYPT_COST = Number(process.env.BCRYPT_COST) > 0
+  ? Number(process.env.BCRYPT_COST)
+  : process.env.NODE_ENV === 'test'
+    ? 4
+    : 12;
 
 export interface PasswordCheck {
   rule: 'length' | 'letter' | 'number' | 'common';

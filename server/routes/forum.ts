@@ -6,11 +6,44 @@ import { sanitizeRichText, sanitizeText } from '../middleware/sanitize.js';
 import { onlineSet, presenceMap } from '../lib/presence.js';
 import { ACCESS_COOKIE } from '../lib/sessions.js';
 import { validatePoll, savePoll, getPollForThread } from './polls.js';
-import { createThreadSchema, createReplySchema, voteSchema, moderateSchema, updatePostSchema, validate } from '../lib/schemas.js';
-import { awardXp, applyAuthorKarma } from '../lib/gamification.js';
+import { createThreadSchema, createReplySchema, followThreadSchema, voteSchema, moderateSchema, updatePostSchema, validate } from '../lib/schemas.js';
+import { awardXp, applyAuthorKarma, XP } from '../lib/gamification.js';
 import { notify, notifyMentions } from '../lib/notifications.js';
+// N10 — ugovor front↔back (isti modul uvozi `src/lib/api.ts`).
+import { categoriesResponseSchema, threadCreateResponseSchema, threadDetailResponseSchema, threadListResponseSchema } from '../../contracts/index.js';
+import { respond } from '../lib/respond.js';
+import { recordAudit } from './users.js';
+import { recordDailyPost, recordDailyReply } from '../lib/dailyLoop.js';
+import { sendReplyEmails } from '../lib/threadEmails.js';
+import { flagForReview, isNewMember, suspiciousSignals } from '../lib/newMemberGuard.js';
+import { getPublicSiteSettings } from './admin.js';
 
 const router = Router();
+
+/**
+ * F-3 — kartica deal-a na vrhu teme otvorene iz popusta.
+ *
+ * Deal čitamo bez „viewer“-a (kartica je javna): uklonjen deal se NE prikazuje
+ * (postaje `null`, tema ostaje čitljiva), a greška upita ne obara prikaz teme.
+ */
+async function linkedDealCard(dealId?: string | null) {
+  if (!dealId) return null;
+  const deal = await db.deals.findById(dealId).catch(() => null);
+  if (!deal || deal.status === 'removed') return null;
+  return {
+    id: deal.id,
+    title: deal.title,
+    store: deal.store,
+    price: deal.price,
+    originalPrice: deal.originalPrice,
+    currency: deal.currency,
+    discountPct: deal.discountPct,
+    url: deal.url,
+    gameCover: deal.gameCover ?? null,
+    expiresAt: deal.expiresAt ?? null,
+    status: deal.status,
+  };
+}
 
 // =====================
 // GET /api/forum/categories (dostupni subforumi sa statistikom)
@@ -20,7 +53,7 @@ router.get('/categories', async (_req, res, next) => {
     // #13 — kategorije dolaze iz `forum_categories` (data layer), bez hardkodovane
     // liste u ruti. Isti izvor koristi i validacija novih tema.
     const categories = await db.forum.listCategories();
-    res.json({ categories });
+    respond(res, categoriesResponseSchema, { categories });
   } catch (err) {
     next(err);
   }
@@ -32,7 +65,8 @@ router.get('/categories', async (_req, res, next) => {
 router.get('/:subforum/threads', async (req, res, next) => {
   try {
     const { subforum } = req.params;
-    const { sort, search, limit = '100', cursor } = req.query;
+    // 6.x — `solved=no` prikazuje samo teme bez prihvaćenog odgovora („Nerešeno“).
+    const { sort, search, limit = '100', cursor, solved } = req.query;
 
     // #13 — subforum se validira prema bazi; nepoznati slug ne prolazi
     if (subforum !== 'all' && !(await db.forum.categoryExists(subforum))) {
@@ -42,10 +76,16 @@ router.get('/:subforum/threads', async (req, res, next) => {
     // F-18 — strana se čita u SQL-u (limit + range), a `total` dolazi iz COUNT-a
     // umesto da se cela tabela učita u memoriju.
     const take = Math.min(Math.max(parseInt(limit as string, 10) || 100, 1), 200);
-    const filters = {
+    const filters: {
+      subforum?: string;
+      sort: 'hot' | 'new' | 'top';
+      search?: string;
+      unsolved?: boolean;
+    } = {
       subforum: subforum === 'all' ? undefined : subforum,
-      sort: (sort as any) || 'hot',
+      sort: sort === 'new' || sort === 'top' ? sort : 'hot',
       search: typeof search === 'string' ? search.slice(0, 100) : undefined,
+      unsolved: solved === 'no',
     };
 
     // B-10 — cursor paginacija: `cursor` je ID poslednje teme prethodne strane.
@@ -55,7 +95,12 @@ router.get('/:subforum/threads', async (req, res, next) => {
     if (typeof cursor === 'string' && cursor) {
       const cursorOffset = await db.forum.threadCursorOffset(filters, cursor);
       if (cursorOffset === null) {
-        return res.json({ threads: [], total: await db.forum.countThreads(filters), hasMore: false, nextCursor: null });
+        return respond(res, threadListResponseSchema, {
+          threads: [],
+          total: await db.forum.countThreads(filters),
+          hasMore: false,
+          nextCursor: null,
+        });
       }
       offset = cursorOffset;
     }
@@ -77,6 +122,8 @@ router.get('/:subforum/threads', async (req, res, next) => {
       const status = presence.get(thread.authorId) ?? 'offline';
       return {
         ...thread,
+        // 6.x — značka „Rešeno“ u listi (autor teme/staff označio prihvaćen odgovor).
+        solved: Boolean(thread.acceptedReplyId),
         authorRole: author?.role ?? null,
         authorLevel: author?.level ?? null,
         authorVerified: author?.isVerified === true,
@@ -86,7 +133,7 @@ router.get('/:subforum/threads', async (req, res, next) => {
       };
     });
 
-    res.json({
+    respond(res, threadListResponseSchema, {
       threads: withAuthors,
       // F-18 — total iz COUNT-a; `hasMore` odluka umesto poređenja sa punom listom.
       total,
@@ -181,7 +228,7 @@ router.get('/threads/:id', async (req, res, next) => {
       };
     });
 
-    res.json({
+    respond(res, threadDetailResponseSchema, {
       thread: {
         ...thread,
         // Označena teme — frontend prikazuje baner za obrisane teme.
@@ -190,6 +237,7 @@ router.get('/threads/:id', async (req, res, next) => {
         authorVerified: author?.isVerified === true,
         authorOnline: Boolean(author?.id) && online.has(author!.id),
         authorAvatar: author?.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${thread.author}`,
+        linkedDeal: await linkedDealCard(thread.dealId),
       },
       replies: repliesWithAuthors,
       poll,
@@ -205,6 +253,36 @@ router.get('/threads/:id', async (req, res, next) => {
 // F-11 — objavljivanje sadržaja (teme, odgovori, glasovi) zahteva verificiran email.
 router.post('/:subforum/threads', authenticate, requireVerified, async (req: AuthRequest, res, next) => {
   try {
+    // Admin podešavanja: zatvoren priliv novih tema / forum samo za čitanje.
+    const siteSettings = getPublicSiteSettings();
+    const isStaff = req.user!.role === 'admin' || req.user!.role === 'moderator';
+    if (siteSettings.readOnlyForum && !isStaff) {
+      return res.status(403).json({ error: 'Forum je trenutno u režimu samo za čitanje.' });
+    }
+    if (siteSettings.disableNewThreads && !isStaff) {
+      return res.status(403).json({ error: 'Otvaranje novih tema je trenutno onemogućeno od strane administratora.' });
+    }
+
+    // Najmanji XP za otvaranje teme (0 = svi mogu) — XP dohvatamo iz baze.
+    if (!isStaff && siteSettings.minXpToPost > 0) {
+      const full = await db.users.findById(req.user!.id);
+      if (full && full.xp < siteSettings.minXpToPost) {
+        return res.status(403).json({
+          error: `Za otvaranje nove teme potrebno je najmanje ${siteSettings.minXpToPost} XP. Trenutno imaš ${full.xp}.`,
+        });
+      }
+    }
+
+    // Dnevni limit tema (0 = bez limita) — po korisniku, UTC dan.
+    if (!isStaff && siteSettings.threadsPerDay > 0) {
+      const todayIso = new Date().toISOString().slice(0, 10);
+      const allMine = await db.forum.listThreadsByAuthor(req.user!.id, req.user!.username, 1000);
+      const todayCount = allMine.filter((thread) => (thread.createdAt ?? '').startsWith(todayIso)).length;
+      if (todayCount >= siteSettings.threadsPerDay) {
+        return res.status(429).json({ error: `Dostigao si dnevni limit od ${siteSettings.threadsPerDay} tema. Pokušaj sutra.` });
+      }
+    }
+
     // #13 — subforum mora postojati u bazi; proizvoljni nazivi se odbijaju
     if (!(await db.forum.categoryExists(req.params.subforum))) {
       return res.status(400).json({ error: 'Nepoznat subforum. Izaberite jedan od ponuđenih.' });
@@ -215,8 +293,19 @@ router.post('/:subforum/threads', authenticate, requireVerified, async (req: Aut
       return res.status(400).json({ error: parsed.details[0].message, details: parsed.details });
     }
 
-    const { title, content, tags, isSpoiler, poll } = parsed.data;
+    const { title, content, tags, isSpoiler, poll, dealId } = parsed.data;
     const now = new Date().toISOString();
+
+    // F-3 — tema iz deal-a: deal mora postojati i ne sme biti uklonjen, inače
+    // kartica na vrhu teme vodi u 404. Nepostojeći ID ne pravi temu (a ne tiho
+    // ignoriše grešku kao kod `gameId`).
+    let linkedDeal: Awaited<ReturnType<typeof db.deals.findById>> = null;
+    if (dealId) {
+      linkedDeal = await db.deals.findById(dealId, req.user!.id);
+      if (!linkedDeal || linkedDeal.status === 'removed') {
+        return res.status(404).json({ error: 'Popust za koji se otvara tema ne postoji ili je uklonjen.' });
+      }
+    }
 
     const newThread = await db.forum.createThread({
       id: uid('thr'),
@@ -233,6 +322,7 @@ router.post('/:subforum/threads', authenticate, requireVerified, async (req: Aut
       isPinned: false,
       isLocked: false,
       isSpoiler: Boolean(isSpoiler),
+      dealId: linkedDeal ? linkedDeal.id : null,
       createdAt: now,
       lastReplyAt: now,
     });
@@ -240,6 +330,8 @@ router.post('/:subforum/threads', authenticate, requireVerified, async (req: Aut
     // #14 — XP, nivo i bedŽevi kroz jedan mehanizam (dnevni limit je unutra)
     const threadCount = (await db.forum.listThreadsByAuthor(req.user!.id, req.user!.username, 1000)).length;
     const awarded = await awardXp(req.user!.id, 20, { reason: 'thread', threadCount });
+    // F-2 — streak + bonus za prvi post dana (ne blokira odgovor).
+    void recordDailyPost(req.user!.id);
 
     // Anketa je pravi entitet, ne tekst u sadrŽaju
     const validPoll = validatePoll(poll);
@@ -256,12 +348,31 @@ router.post('/:subforum/threads', authenticate, requireVerified, async (req: Aut
       }
     }
 
-    req.log?.info({ threadId: newThread.id, poll: Boolean(validPoll) }, 'thread_created');
-    res.status(201).json({
+    // 6.x — anti-spam: prvih nekoliko objava novog člana ide kroz blagi filter.
+    // Objava živi odmah; sumnjiva se samo upiše u moderacioni red (`reports`).
+    void (async () => {
+      if (isStaff) return;
+      if (!(await isNewMember(req.user!.id, req.user!.username))) return;
+      const signals = suspiciousSignals({
+        content: `${newThread.title} ${newThread.content}`,
+        recentContents: (await db.forum.listThreadsByAuthor(req.user!.id, req.user!.username, 5))
+          .filter((item) => item.id !== newThread.id)
+          .map((item) => item.title),
+      });
+      if (signals.length) {
+        await flagForReview({ authorId: req.user!.id, targetType: 'thread', targetId: newThread.id, signals });
+      }
+    })().catch(() => undefined);
+
+    req.log?.info({ threadId: newThread.id, poll: Boolean(validPoll), dealId: newThread.dealId ?? null }, 'thread_created');
+    // 2.6.6 — odgovor se orezuje ugovorom (`threadSchema` je išeovao nove
+    // zadate polja: `authorRole`, `dealId`), da klijent ne bi dobio oblik koji
+    // ne prolazi `threadSchema` validaciju u development modu.
+    respond(res, threadCreateResponseSchema, {
       ...newThread,
       poll: validPoll,
       awarded: awarded ? { xp: awarded.xpAwarded, levelUp: awarded.levelUp, newBadges: awarded.newBadges } : null,
-    });
+    }, 201);
   } catch (err) {
     next(err);
   }
@@ -272,6 +383,23 @@ router.post('/:subforum/threads', authenticate, requireVerified, async (req: Aut
 // ====================
 router.post('/threads/:threadId/comments', authenticate, requireVerified, async (req: AuthRequest, res, next) => {
   try {
+    // Admin podešavanja: forum samo za čitanje (staff izuzet).
+    const siteSettings = getPublicSiteSettings();
+    const isStaff = req.user!.role === 'admin' || req.user!.role === 'moderator';
+    if (siteSettings.readOnlyForum && !isStaff) {
+      return res.status(403).json({ error: 'Forum je trenutno u režimu samo za čitanje.' });
+    }
+
+    // Dnevni limit odgovora (0 = bez limita) — po korisniku, UTC dan.
+    if (!isStaff && siteSettings.postsPerDay > 0) {
+      const todayIso = new Date().toISOString().slice(0, 10);
+      const allMine = await db.forum.listRepliesByAuthor(req.user!.id, req.user!.username, 1000).catch(() => []);
+      const todayCount = allMine.filter((reply) => (reply.createdAt ?? '').startsWith(todayIso)).length;
+      if (todayCount >= siteSettings.postsPerDay) {
+        return res.status(429).json({ error: `Dostigao si dnevni limit od ${siteSettings.postsPerDay} odgovora. Pokušaj sutra.` });
+      }
+    }
+
     const parsed = validate(createReplySchema, req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: parsed.details[0].message, details: parsed.details });
@@ -309,6 +437,9 @@ router.post('/threads/:threadId/comments', authenticate, requireVerified, async 
     });
 
     await awardXp(req.user!.id, 5, { reason: 'reply' });
+    // F-2 — prvi post dana (streak + bonus) i dnevni kvest „odgovori 1 temi“.
+    void recordDailyPost(req.user!.id);
+    void recordDailyReply(req.user!.id);
 
     // Notifikacije: jedan primaílac = jedna notifikacija.
     // Ranije je autor teme koji je ujedno pratioc ili roditelj odgovora dobijao
@@ -366,6 +497,33 @@ router.post('/threads/:threadId/comments', authenticate, requireVerified, async 
       contextTitle: thread.title,
       excludeUserIds: notified,
     });
+
+    // 5. Mejl pratiocima je UGAŠEN (mejl samo za verifikaciju i reset lozinke) —
+    // `sendReplyEmails` je sada no-op i ostaje pozvan samo radi kompatibilnosti.
+    void sendReplyEmails({
+      threadId: thread.id,
+      threadTitle: thread.title,
+      threadPath: `${threadLink}#post-${newReply.id}`,
+      actorId: req.user!.id,
+      actorUsername: req.user!.username,
+      replyContent: newReply.content,
+    });
+
+    // 6.x — anti-spam za odgovore novih članova (isti princip, bez blokiranja).
+    if (!isStaff) {
+      void (async () => {
+        if (!(await isNewMember(req.user!.id, req.user!.username))) return;
+        const signals = suspiciousSignals({
+          content: newReply.content,
+          recentContents: (await db.forum.listRepliesByAuthor(req.user!.id, req.user!.username, 10))
+            .filter((item) => item.id !== newReply.id)
+            .map((item) => item.content),
+        });
+        if (signals.length) {
+          await flagForReview({ authorId: req.user!.id, targetType: 'reply', targetId: newReply.id, signals });
+        }
+      })().catch(() => undefined);
+    }
 
     res.status(201).json(newReply);
   } catch (error) {
@@ -535,13 +693,30 @@ router.put('/replies/:id', authenticate, async (req: AuthRequest, res, next) => 
       return res.status(403).json({ error: 'Možete menjati samo sopstvene odgovore.' });
     }
 
-    const { content, isSpoiler, deletePost } = parsed.data;
+    const { content, isSpoiler, deletePost, reason } = parsed.data;
     const patch: any = { isEdited: true };
     if (content !== undefined) patch.content = sanitizeRichText(content);
     if (isSpoiler !== undefined) patch.isSpoiler = isSpoiler;
     if (deletePost) patch.isDeleted = true;
 
     const updated = await db.forum.updateReply(reply.id, patch);
+    // 6.x — kada odgovor UKLONI moderator (ne kad ga autor sam obriše), autor
+    // dobija razlog u inbox-u. Razlog stiže kroz telo `moderate` rute za odgovore
+    // ako postoji, inače uopštena poruka.
+    const removalReason = reason ? sanitizeText(reason).slice(0, 300) : '';
+    if (deletePost && isModerator && !isOwner && reply.authorId) {
+      void notify({
+        userId: reply.authorId,
+        type: 'warning',
+        title: 'Vaš odgovor je uklonjen',
+        message: removalReason
+          ? `Odgovor je uklonjen od strane ${req.user!.username}. Razlog: ${removalReason}`
+          : `Odgovor je uklonjen od strane ${req.user!.username}.`,
+        link: '/notifications',
+        actorId: req.user!.id,
+        metadata: { replyId: reply.id, reason: removalReason || null },
+      }).catch(() => null);
+    }
     req.log?.info({ replyId: reply.id, editedBy: req.user!.id, deleted: Boolean(deletePost) }, 'reply_updated');
     res.json(updated);
   } catch (err) {
@@ -570,6 +745,23 @@ router.delete('/replies/:id', authenticate, async (req: AuthRequest, res, next) 
     }
 
     await db.forum.updateReply(reply.id, { isDeleted: true } as any);
+    // 6.x — moderator koji ukloni TUĐI odgovor prati razlog autoru (vidi `moderate` rutu).
+    const deleteReason = typeof (req.body as { reason?: unknown })?.reason === 'string'
+      ? sanitizeText(String((req.body as { reason?: string }).reason)).slice(0, 300)
+      : '';
+    if (isModerator && !isOwner && reply.authorId) {
+      void notify({
+        userId: reply.authorId,
+        type: 'warning',
+        title: 'Vaš odgovor je uklonjen',
+        message: deleteReason
+          ? `Odgovor je uklonjen od strane ${req.user!.username}. Razlog: ${deleteReason}`
+          : `Odgovor je uklonjen od strane ${req.user!.username}.`,
+        link: '/notifications',
+        actorId: req.user!.id,
+        metadata: { replyId: reply.id, reason: deleteReason || null },
+      }).catch(() => null);
+    }
     req.log?.info({ replyId: reply.id, deletedBy: req.user!.id }, 'reply_soft_deleted');
     res.json({ message: 'Odgovor je obrisan.' });
   } catch (err) {
@@ -605,10 +797,17 @@ router.delete('/threads/:id/bookmark', authenticate, async (req: AuthRequest, re
 // ====================
 router.post('/threads/:id/follow', authenticate, async (req: AuthRequest, res, next) => {
   try {
+    // F-7.1 #8 — `{ email: true }` uz praćenje uključuje i mejl na novi odgovor;
+    // bez tela ostaje samo in-app praćenje (kompatibilno sa starijim klijentom).
+    const parsed = validate(followThreadSchema, req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.details[0].message, details: parsed.details });
+    }
     const thread = await db.forum.findThread(req.params.id);
     if (!thread || thread.isDeleted) return res.status(404).json({ error: 'Tema nije pronađena.' });
-    await db.subscriptions.follow(req.user!.id, thread.id);
-    res.json({ following: true, threadId: thread.id });
+    const email = parsed.data.email === true;
+    await db.subscriptions.follow(req.user!.id, thread.id, email);
+    res.json({ following: true, email, threadId: thread.id });
   } catch (err) {
     next(err);
   }
@@ -626,7 +825,87 @@ router.delete('/threads/:id/follow', authenticate, async (req: AuthRequest, res,
 router.get('/threads/:id/follow', authenticate, async (req: AuthRequest, res, next) => {
   try {
     const following = await db.subscriptions.isFollowing(req.user!.id, req.params.id);
-    res.json({ following });
+    // `email` je `false` i kada pretplata još nema kolonu `email_on_reply`
+    // (stara baza) — praćenje tada radi, samo bez mejla.
+    const email = following ? await db.subscriptions.isEmailOnReply(req.user!.id, req.params.id) : false;
+    res.json({ following, email });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// =====================
+// 2.11.0 — PATCH /api/forum/threads/:threadId/accept/:replyId
+// „Prihvaćen odgovor“ (accepted answer): označava SAMO autor teme (ili staff).
+// `replyId = "none"` ponovo odznača rešenje. XP ide autoru odgovora samo pri
+// PRVOM prihvatanju u temi — inače bi prebacivanje izbora farmovalo XP.
+//
+// 6.x — REPUTACIJA: pored XP-a raste i brojač `solvedAnswers` (`users.solved_answers`),
+// koji se prikazuje na profilu odvojeno od karme (glasova). Brojač se odznačanjem
+// NE smanjuje — reputacija je „koliko puta ti je odgovor pomogao“, ne trenutno stanje.
+// ====================
+const ACCEPTED_ANSWER_XP = XP.ACCEPTED_ANSWER;
+
+router.patch('/threads/:threadId/accept/:replyId', authenticate, requireVerified, async (req: AuthRequest, res, next) => {
+  try {
+    const thread = await db.forum.findThread(req.params.threadId);
+    if (!thread) return res.status(404).json({ error: 'Tema nije pronađena.' });
+
+    const isAuthor = thread.authorId === req.user!.id;
+    const isStaff = req.user!.role === 'admin' || req.user!.role === 'moderator';
+    if (!isAuthor && !isStaff) {
+      return res.status(403).json({ error: 'Samo autor teme može označiti prihvaćen odgovor.' });
+    }
+
+    const hadAccepted = Boolean(thread.acceptedReplyId);
+
+    if (req.params.replyId === 'none') {
+      const updated = await db.forum.updateThread(thread.id, { acceptedReplyId: null });
+      return res.json({
+        message: 'Prihvaćen odgovor je uklonjen.',
+        threadId: thread.id,
+        acceptedReplyId: null,
+        thread: updated,
+      });
+    }
+
+    const reply = await db.forum.findReply(req.params.replyId);
+    if (!reply || reply.threadId !== thread.id) {
+      return res.status(404).json({ error: 'Odgovor ne pripada ovoj temi.' });
+    }
+    if (reply.isDeleted) {
+      return res.status(400).json({ error: 'Obrisan odgovor ne može biti prihvaćen.' });
+    }
+
+    const updated = await db.forum.updateThread(thread.id, { acceptedReplyId: reply.id });
+
+    if (!hadAccepted && reply.authorId && reply.authorId !== req.user!.id) {
+      // XP po događaju (dnevni budžet važi)…
+      void awardXp(reply.authorId, ACCEPTED_ANSWER_XP, {
+        reason: 'accepted_answer',
+      }).catch(() => undefined);
+      // …i reputacija +1 (`solved_answers` nije XP, pa ga dnevni budžet ne kroji).
+      void awardXp(reply.authorId, 0, { reason: 'solved_answers' }).catch(() => undefined);
+    }
+
+    if (reply.authorId && reply.authorId !== req.user!.id) {
+      void notify({
+        userId: reply.authorId,
+        type: 'upvote',
+        title: 'Tvoj odgovor je prihvaćen kao rešenje!',
+        message: `U temi: ${thread.title}`,
+        link: `/forum/thread/${thread.id}#post-${reply.id}`,
+        actorId: req.user!.id,
+      }).catch(() => null);
+    }
+
+    res.json({
+      message: 'Odgovor je označen kao rešenje.',
+      threadId: thread.id,
+      acceptedReplyId: reply.id,
+      awardedXp: !hadAccepted ? ACCEPTED_ANSWER_XP : 0,
+      thread: updated,
+    });
   } catch (err) {
     next(err);
   }
@@ -642,17 +921,65 @@ router.patch('/threads/:id/moderate', authenticate, authorize('admin', 'moderato
       return res.status(400).json({ error: parsed.details[0].message });
     }
 
-    const { isPinned, isLocked, deleteThread } = parsed.data;
+    const { isPinned, isLocked, deleteThread, restoreThread } = parsed.data;
+    // 6.x — razlog uklanjanja ide autoru u inbox (mejl je ugašen, a "zašto mi je
+    // nestao post" poruke su bile jedini način da se to sazna).
+    const removalReason = parsed.data.reason ? sanitizeText(parsed.data.reason).slice(0, 300) : '';
 
     const thread = await db.forum.findThread(req.params.id);
-    if (!thread || thread.isDeleted) {
+    if (!thread) return res.status(404).json({ error: 'Tema nije pronađena.' });
+
+    // F-10 — vraćanje soft-deleted teme. Ranije je to bilo moguće samo ručno
+    // u bazi; sada je isto dugme u adminu (i moderacija ga sme koristiti).
+    if (restoreThread) {
+      if (!thread.isDeleted) {
+        return res.status(409).json({ error: 'Tema nije obrisana — nema šta da se vrati.' });
+      }
+      const restored = await db.forum.updateThread(thread.id, { isDeleted: false });
+      await recordAudit({
+        actorId: req.user!.id,
+        actorUsername: req.user!.username,
+        targetId: thread.id,
+        targetUsername: thread.authorId,
+        action: 'thread_restore',
+        from: { isDeleted: true },
+        to: { isDeleted: false },
+      });
+      req.log?.info({ threadId: thread.id, restoredBy: req.user!.id }, 'thread_moderated_restored');
+      return res.json({ message: 'Tema je vraćena.', threadId: thread.id, isDeleted: false, thread: restored });
+    }
+
+    if (thread.isDeleted) {
       return res.status(404).json({ error: 'Tema nije pronađena.' });
     }
 
     // Moderator "briše" temu SOFT DELETE-om: tema nestaje iz listi i vraća 404,
-    // ali red i odgovori ostaju u bazi (revizija, Žalbe, mogući restore).
+    // ali red i odgovori ostaju u bazi (revizija, žalbe, mogući restore).
     if (deleteThread) {
       await db.forum.updateThread(thread.id, { isDeleted: true });
+      await recordAudit({
+        actorId: req.user!.id,
+        actorUsername: req.user!.username,
+        targetId: thread.id,
+        targetUsername: thread.authorId,
+        action: 'thread_delete',
+        from: { isDeleted: false },
+        to: { isDeleted: true, ...(removalReason ? { reason: removalReason } : {}) },
+      });
+      // 6.x — autor saznaje ŠTA je uklonjeno i ZAŠTO (staff ne dobija poruku o svom potezu).
+      if (thread.authorId && thread.authorId !== req.user!.id) {
+        void notify({
+          userId: thread.authorId,
+          type: 'warning',
+          title: 'Vaša tema je uklonjena',
+          message: removalReason
+            ? `Tema „${thread.title}“ je uklonjena od strane ${req.user!.username}. Razlog: ${removalReason}`
+            : `Tema „${thread.title}“ je uklonjena od strane ${req.user!.username}.`,
+          link: '/notifications',
+          actorId: req.user!.id,
+          metadata: { threadId: thread.id, reason: removalReason || null },
+        }).catch(() => null);
+      }
       req.log?.info({ threadId: thread.id, deletedBy: req.user!.id }, 'thread_moderated_deleted');
       return res.json({ message: 'Tema je obrisana.', threadId: thread.id, isDeleted: true });
     }

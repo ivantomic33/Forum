@@ -1,9 +1,10 @@
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowDown, ArrowUp, BarChart2, ChevronRight, Eye, Lock, MessageSquare, Pin, Plus, ShieldAlert, TrendingUp, Users, X } from 'lucide-react';
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { ArrowDown, ArrowUp, BarChart2, CheckCircle2, ChevronRight, Cpu, Eye, Gamepad2, HelpCircle, Lock, MessageCircle, MessageSquare, Monitor, Pin, Plus, ShieldAlert, Trophy, TrendingUp, Users, X } from 'lucide-react';
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api } from '../lib/api';
+import { DraftRecoveryBanner, DraftStatusIndicator, useFormDraft } from '../lib/useFormDraft.tsx';
 import { useAuthStore } from '../store/authStore';
 import {
   Badge, Button, Card, EmptyState, ErrorState, Modal, OnlineAvatar, SkeletonThreadRows, Tabs, cn,
@@ -15,12 +16,12 @@ import { VerifiedBadge } from '../components/ui/VerifiedBadge';
 const RichTextEditor = lazy(() => import('../components/RichTextEditor'));
 
 const SUBFORUMS_DEF = [
-  { id: 'pc-gaming', name: 'PC Gaming', description: 'Diskusije o PC naslovima, optimizaciji i konfiguracijama.', icon: '🖥️' },
-  { id: 'consoles', name: 'Consoles', description: 'PlayStation, Xbox i Nintendo — vesti, ekskluzive i debate.', icon: '🎮' },
-  { id: 'esports', name: 'Esports', description: 'Turniri, mečevi, timovi i meta analize.', icon: '🏆' },
-  { id: 'hardware', name: 'Hardware', description: 'Grafičke kartice, procesori, hlađenje i custom build-ovi.', icon: '⚙️' },
-  { id: 'lfg', name: 'LFG', description: 'Pronađi saigrače za co-op, multiplayer i rangirane mečeve.', icon: '👥' },
-  { id: 'off-topic', name: 'Off-Topic', description: 'Slobodne teme, humor i opšte ćaskanje zajednice.', icon: '💬' },
+  { id: 'pc-gaming', name: 'PC Gaming', description: 'Diskusije o PC naslovima, optimizaciji i konfiguracijama.', icon: '🖥️', lucide: Monitor },
+  { id: 'consoles', name: 'Consoles', description: 'PlayStation, Xbox i Nintendo — vesti, ekskluzive i debate.', icon: '🎮', lucide: Gamepad2 },
+  { id: 'esports', name: 'Esports', description: 'Turniri, mečevi, timovi i meta analize.', icon: '🏆', lucide: Trophy },
+  { id: 'hardware', name: 'Hardware', description: 'Grafičke kartice, procesori, hlađenje i custom build-ovi.', icon: '⚙️', lucide: Cpu },
+  { id: 'lfg', name: 'LFG', description: 'Pronađi saigrače za co-op, multiplayer i rangirane mečeve.', icon: '👥', lucide: Users },
+  { id: 'off-topic', name: 'Off-Topic', description: 'Slobodne teme, humor i opšte časkanje zajednice.', icon: '💬', lucide: MessageCircle },
 ];
 
 type SortKey = 'hot' | 'new' | 'top';
@@ -29,13 +30,13 @@ const formatDate = (value?: string) => {
   if (!value) return '—';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '—';
-  // `toLocaleDateString` na srpskom daje „окт.“/„20.10.“ — kratke, ali neravne
+  // `toLocaleDateString` na srpskom daje „Ð¾ÐºÑ‚.“/„20.10.“ — kratke, ali neravne
   // širine. Fiksni mesec zapis je predvidiv u uskoj koloni.
   const months = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'avg', 'sep', 'okt', 'nov', 'dec'];
   return `${date.getDate()}. ${months[date.getMonth()]}`;
 };
 
-/** Slug (`pc-gaming`) → čitljiv naziv sekcije (`PC Gaming`). */
+/** Slug (`pc-gaming`) â†’ čitljiv naziv sekcije (`PC Gaming`). */
 const subforumLabel = (slug?: string) => {
   if (!slug) return '';
   const known = SUBFORUMS_DEF.find((item) => item.id === slug);
@@ -50,10 +51,17 @@ export default function ForumPage() {
   const { subforum } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
 
   const search = searchParams.get('search') ?? '';
+  // 6.x — „Pratim“: feed tema autora koje pratiš (`?feed=following`). Definisano
+  // PRE upita koji ga koriste (TDZ: `followingFeed` je ranije bio deklarisan
+  // ispod `threadsQuery`, pa je stranica padala na prvom renderu).
+  const followingFeed = searchParams.get('feed') === 'following';
   const [sortBy, setSortBy] = useState<SortKey>('hot');
+  // 6.x — filter „Nerešeno“ (server: `?solved=no`).
+  const [unsolvedOnly, setUnsolvedOnly] = useState(searchParams.get('solved') === 'no');
   const [votedThreads, setVotedThreads] = useState<Record<string, 'up' | 'down'>>({});
 
   // Nova tema
@@ -69,6 +77,32 @@ export default function ForumPage() {
   const [pollOptions, setPollOptions] = useState(['', '']);
   const [submitting, setSubmitting] = useState(false);
 
+  // F-EDIT2 — autosave drafta nove teme (localStorage, debounce 800ms).
+  const threadDraft = useFormDraft(
+    'nexus_forum_draft_new_thread',
+    {
+      title: newTitle,
+      content: newContent,
+      tags: newTags,
+      subforum: newSubforum,
+      isSpoiler,
+      hasPoll,
+      pollQuestion,
+      pollOptions,
+    },
+    (draft) => {
+      setNewTitle(String(draft.title ?? ''));
+      setNewContent(String(draft.content ?? ''));
+      setNewTags(String(draft.tags ?? ''));
+      setNewSubforum(String(draft.subforum ?? 'pc-gaming'));
+      setIsSpoiler(Boolean(draft.isSpoiler));
+      setHasPoll(Boolean(draft.hasPoll));
+      setPollQuestion(String(draft.pollQuestion ?? ''));
+      const savedOptions = Array.isArray(draft.pollOptions) ? (draft.pollOptions as string[]) : [];
+      setPollOptions(savedOptions.length >= 2 ? savedOptions : ['', '']);
+    },
+  );
+
   const categoriesQuery = useQuery({ queryKey: ['forum-categories'], queryFn: () => api.forum.categories() });
 
   const PAGE_SIZE = 25;
@@ -76,26 +110,57 @@ export default function ForumPage() {
   // Cursor paginacija: „Učitaj još“ koristi `nextCursor` sa servera. Ranije je
   // uvek stizalo samo prvih 100 tema, a ostatak foruma nije bio dostupan.
   const threadsQuery = useInfiniteQuery({
-    queryKey: ['forum-threads', subforum ?? 'all', sortBy, search],
+    queryKey: ['forum-threads', subforum ?? 'all', sortBy, search, unsolvedOnly],
+    // `?feed=following` ima svoj izvor (feed praćenih autora, do 100 tema).
+    enabled: !followingFeed,
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }) =>
       search
-        ? api.forum.searchThreads(search, sortBy, { limit: PAGE_SIZE, cursor: pageParam })
-        : api.forum.listThreads(subforum || 'all', sortBy, undefined, { limit: PAGE_SIZE, cursor: pageParam }),
+        ? api.forum.searchThreads(search, sortBy, { limit: PAGE_SIZE, cursor: pageParam, unsolved: unsolvedOnly })
+        : api.forum.listThreads(subforum || 'all', sortBy, undefined, {
+            limit: PAGE_SIZE,
+            cursor: pageParam,
+            unsolved: unsolvedOnly,
+          }),
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+  });
+
+  // Deljiv link (unos u zvoncetu) i isto pravilo: bez prijave tab ne postoji,
+  // a ako sesija istekne prikazuje se poziv na prijavu.
+  const followingQuery = useQuery({
+    queryKey: ['forum-following-feed'],
+    queryFn: () => api.users.followingThreads(),
+    enabled: followingFeed && isAuthenticated,
+    staleTime: 60_000,
   });
 
   useEffect(() => {
     setNewSubforum(subforum || 'pc-gaming');
   }, [subforum]);
 
+  // B-08 — FAB/URL kontrakt `?compose=1`: mobilni FAB i gyozi dugmići otvaraju
+  // kompozitor kroz URL, pa link radi i posle osvežavanja stranice.
+  useEffect(() => {
+    if (searchParams.get('compose') === '1' && isAuthenticated) {
+      setNewSubforum(subforum || 'pc-gaming');
+      setComposerOpen(true);
+      navigate('/forum' + (subforum ? `/${subforum}` : ''), { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, isAuthenticated]);
+
   const categories = categoriesQuery.data?.categories?.length ? categoriesQuery.data.categories : SUBFORUMS_DEF;
   const currentSubforum = categories.find((item: any) => item.id === subforum);
   const threads: any[] = useMemo(
-    () => threadsQuery.data?.pages.flatMap((page) => page.threads) ?? [],
-    [threadsQuery.data],
+    () =>
+      followingFeed
+        ? (followingQuery.data?.threads ?? [])
+        : (threadsQuery.data?.pages.flatMap((page) => page.threads) ?? []),
+    [threadsQuery.data, followingFeed, followingQuery.data],
   );
-  const totalThreads = threadsQuery.data?.pages[0]?.total ?? threads.length;
+  const totalThreads = followingFeed
+    ? threads.length
+    : (threadsQuery.data?.pages[0]?.total ?? threads.length);
 
   const quickStats = useMemo(
     () => [
@@ -148,7 +213,7 @@ export default function ForumPage() {
 
     setSubmitting(true);
     try {
-      await api.forum.createThread(newSubforum, {
+      const created = await api.forum.createThread(newSubforum, {
         title: newTitle.trim(),
         content: newContent.trim(),
         tags: newTags.split(',').map((tag) => tag.trim()).filter(Boolean),
@@ -156,6 +221,7 @@ export default function ForumPage() {
         poll,
       });
       setComposerOpen(false);
+      threadDraft.clear(); // F-EDIT2 — draft se briše TEK po uspešnom 201 od servera.
       setNewTitle('');
       setNewContent('');
       setNewTags('');
@@ -165,6 +231,11 @@ export default function ForumPage() {
       setPollOptions(['', '']);
       setUseRichEditor(false);
       toast.success('Tema je objavljena (+20 XP)');
+      // 8 — level-up konfete: server zna kad je prag pređen.
+      if (created.awarded?.levelUp) {
+        const { celebrateLevelUp } = await import('../lib/celebrate');
+        celebrateLevelUp();
+      }
       // Prva strana se ponovo učitava (nove teme su na vrhu liste).
       threadsQuery.refetch();
     } catch (error: any) {
@@ -175,20 +246,78 @@ export default function ForumPage() {
   };
 
   const sortTabs = (
-    <Tabs
-      ariaLabel="Sortiranje tema"
-      value={sortBy}
-      onChange={(value) => setSortBy(value)}
-      items={[
-        { id: 'hot', label: 'Hot' },
-        { id: 'new', label: 'Novo' },
-        { id: 'top', label: 'Top' },
-      ]}
-    />
+    <div className="flex flex-wrap items-center gap-2">
+      <Tabs
+        ariaLabel="Sortiranje tema"
+        value={sortBy}
+        onChange={(value) => setSortBy(value)}
+        items={[
+          { id: 'hot', label: 'Hot' },
+          { id: 'new', label: 'Novo' },
+          { id: 'top', label: 'Top' },
+        ]}
+      />
+      {/* 6.x — feed praćenih autora (`?feed=following`, deljiv link). */}
+      {isAuthenticated && (
+        <button
+          type="button"
+          onClick={() => {
+            const params = new URLSearchParams(searchParams);
+            if (followingFeed) params.delete('feed');
+            else params.set('feed', 'following');
+            navigate({ pathname: location.pathname, search: params.toString() }, { replace: true });
+          }}
+          aria-pressed={followingFeed}
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 font-mono text-[11px] font-medium uppercase tracking-wide transition-colors',
+            followingFeed
+              ? 'border-[var(--color-primary)]/40 bg-[var(--color-primary)]/10 text-[var(--color-primary-fg)]'
+              : 'border-[var(--color-border-subtle)] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]',
+          )}
+          title="Samo teme autora koje pratim"
+        >
+          <Users size={12} aria-hidden="true" /> Pratim
+          {followingFeed && followingQuery.data
+            ? ` (${followingQuery.data.authors ?? 0})`
+            : ''}
+        </button>
+      )}
+      {/* 6.x — „Nerešeno“: pitanja bez prihvaćenog odgovora (lakše pomoći). */}
+      <button
+        type="button"
+        onClick={() => setUnsolvedOnly((value) => !value)}
+        aria-pressed={unsolvedOnly}
+        className={cn(
+          'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 font-mono text-[11px] font-medium uppercase tracking-wide transition-colors',
+          unsolvedOnly
+            ? 'border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 text-[var(--color-warning)]'
+            : 'border-[var(--color-border-subtle)] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]',
+        )}
+        title={unsolvedOnly ? 'Prikazuju se samo nerešene teme' : 'Prikaži samo teme bez rešenja'}
+      >
+        <HelpCircle size={12} aria-hidden="true" /> Nerešeno
+      </button>
+    </div>
   );
 
-  const threadList = threadsQuery.isLoading ? (
+  // 6.x — feed „Pratim“: posebni prazno/greška stanja (bez poziva na „Otvori temu“).
+  const followingEmpty = followingFeed && !followingQuery.isLoading && !followingQuery.isError && threads.length === 0;
+  const followingError = followingFeed && followingQuery.isError;
+
+  const threadList = (followingFeed ? followingQuery.isLoading : threadsQuery.isLoading) ? (
     <SkeletonThreadRows rows={5} />
+  ) : followingError ? (
+    <ErrorState
+      title="Feed nije dostupan"
+      message="Lista praćenih autora ne može da se učita. Pokušaj ponovo."
+      onRetry={() => followingQuery.refetch()}
+    />
+  ) : followingEmpty ? (
+    <EmptyState
+      icon={<Users size={22} />}
+      title="Ne pratiš još nijednog autora"
+      message="Otvori profil člana čije teme želiš da pratiš i klikni „Prati“ — njegove teme će se pojaviti ovde."
+    />
   ) : threadsQuery.isError ? (
     <ErrorState
       title="Teme nisu dostupne"
@@ -208,14 +337,14 @@ export default function ForumPage() {
     />
   ) : (
     <div>
-      <div className="overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0D101D]/75 shadow-[0_8px_32px_rgba(0,0,0,0.4)] backdrop-blur-md">
+      <div className="overflow-hidden rounded-2xl border-[var(--color-border-subtle)] bg-[var(--color-surface-1)] shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
         {threads.map((thread) => (
           <ThreadRow key={thread.id} thread={thread} vote={votedThreads[thread.id]} onVote={handleVote} />
         ))}
       </div>
 
       <div className="flex flex-col items-center gap-2 pt-4">
-        <span className="font-mono text-[11px] tabular-nums text-[var(--color-text-muted)]">
+        <span className="font-mono text-[11px] tabular-nums text-[var(--color-text-tertiary)]">
           Prikazano {threads.length} od {totalThreads.toLocaleString('sr-Latn-RS')} tema
         </span>
         {threadsQuery.hasNextPage && (
@@ -229,7 +358,7 @@ export default function ForumPage() {
           </Button>
         )}
         {threadsQuery.isFetchNextPageError && (
-          <span className="text-xs text-rose-400">Sledeća strana nije učitana. Pokušaj ponovo.</span>
+          <span className="text-xs text-[var(--color-tertiary-fg)]">Sledeća strana nije učitana. Pokušaj ponovo.</span>
         )}
       </div>
     </div>
@@ -240,16 +369,16 @@ export default function ForumPage() {
       <div className="container">
         {!subforum ? (
           <>
-            <header className="mb-10 border-b border-white/[0.07] pb-7">
+            <header className="mb-10 border-b border-[var(--color-border-subtle)] pb-7">
               <span className="eyebrow mb-3">Zajednica</span>
               <h1 className="page-title">Forum</h1>
-              <p className="mt-3 max-w-2xl text-[15px] leading-relaxed text-white/55">
+              <p className="text-lead mt-3 max-w-2xl">
                 Pridruži se zajednici, podeli mišljenje, pronađi saigrače i diskutuj o svemu što te zanima.
               </p>
               {search && (
                 <div className="mt-4 flex items-center gap-2 rounded-xl border border-cyan-500/25 bg-cyan-500/[0.06] px-3 py-2 text-sm text-slate-300 backdrop-blur-sm">
-                  Rezultati pretrage: <strong className="text-white">{search}</strong>
-                  <button type="button" onClick={() => navigate('/forum')} className="ml-1 text-white/45 transition hover:text-white" aria-label="Obriši pretragu">
+                  Rezultati pretrage: <strong className="text-[var(--color-text-primary)]">{search}</strong>
+                  <button type="button" onClick={() => navigate('/forum')} className="ml-1 text-[var(--color-text-tertiary)] transition hover:text-[var(--color-text-primary)]" aria-label="Obriši pretragu">
                     <X size={14} />
                   </button>
                 </div>
@@ -257,7 +386,7 @@ export default function ForumPage() {
             </header>
 
             {!search && (
-              <div className="section-head">
+              <div className="section-head" style={{ ['--section-accent' as string]: 'var(--color-secondary)' }}>
                 <div className="section-head-main">
                   <span className="eyebrow">Kategorije</span>
                   <h2 className="section-title">Sekcije foruma</h2>
@@ -267,16 +396,27 @@ export default function ForumPage() {
 
             {!search && (
               <div className="mb-12 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {categories.map((item: any) => (
-                  <Link
-                    key={item.id}
-                    to={`/forum/${item.id}`}
-                    className="forum-cat-card group"
-                  >
-                    <div>
+                {categories.map((item: any) => {
+                  // 5.7 VISUAL — „najaktivnija“ kategorija: najviše tema nosi [TOP] badge.
+                  const topThreads = Math.max(...categories.map((c: any) => c.threads || 0), 1);
+                  const isTop = (item.threads || 0) === topThreads && topThreads > 1;
+                  return (
+                    <Link
+                      key={item.id}
+                      to={`/forum/${item.id}`}
+                      className="forum-cat-card group"
+                      data-top={isTop ? 'true' : undefined}
+                    >
+                      {isTop && <span className="forum-cat-top" aria-hidden="true">[TOP]</span>}
+                      <div>
                       <div className="mb-4 flex items-start justify-between">
                         <div className="forum-cat-icon" aria-hidden="true">
-                          {item.name.slice(0, 2).toUpperCase()}
+                          {(() => {
+                            // 5.8 VISUAL — lucide ikona umesto emojija (premium izgled).
+                            const def = SUBFORUMS_DEF.find((c) => c.id === item.id);
+                            const Icon = def?.lucide ?? MessageSquare;
+                            return <Icon size={16} />;
+                          })()}
                         </div>
                         <ChevronRight size={16} className="forum-cat-arrow" aria-hidden="true" />
                       </div>
@@ -294,7 +434,8 @@ export default function ForumPage() {
                       </span>
                     </div>
                   </Link>
-                ))}
+                  );
+                })}
               </div>
             )}
 
@@ -310,7 +451,7 @@ export default function ForumPage() {
             <div className="mt-8 grid grid-cols-2 gap-3 md:grid-cols-4">
               {quickStats.map((stat) => (
                 <Card key={stat.label} variant="static" className="!p-4">
-                  <stat.icon className="mb-2.5 text-cyan-400/80" size={16} aria-hidden="true" />
+                  <stat.icon className="mb-2.5 text-[var(--color-secondary)]" size={16} aria-hidden="true" />
                   <div className="font-mono text-xl font-semibold tabular-nums text-white">{stat.value}</div>
                   <div className="mt-0.5 text-xs text-[var(--color-text-tertiary)]">{stat.label}</div>
                 </Card>
@@ -324,20 +465,17 @@ export default function ForumPage() {
               <span className="sep" aria-hidden="true">/</span>
               <span className="text-white/80">{currentSubforum?.name ?? subforum}</span>
             </nav>
-            <header className="mb-7 border-b border-white/[0.07] pb-6">
+            <header className="mb-7 border-b border-[var(--color-border-subtle)] pb-6">
               <div className="flex items-start gap-4">
-                <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl border border-violet-500/30 bg-violet-500/10 font-mono text-base font-bold text-cyan-300 shadow-[0_0_18px_-4px_rgba(124,58,237,0.6)]" aria-hidden="true">
+                <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl border-[var(--color-border-default)] bg-[var(--color-primary-muted)] font-mono text-base font-bold text-[var(--color-primary-fg)]" aria-hidden="true">
                   {(currentSubforum?.name ?? subforum ?? 'F').slice(0, 2).toUpperCase()}
                 </div>
                 <div className="min-w-0">
-                  <h1 className="font-display text-2xl font-semibold tracking-[-0.02em] text-white sm:text-3xl">
+                  <h1 className="page-title">
                     {currentSubforum?.name ?? subforum}
                   </h1>
-                  <p className="mt-1.5 text-sm leading-relaxed text-white/55">{currentSubforum?.description ?? ''}</p>
-                  <p className="mt-2.5 font-mono text-[11px] uppercase tracking-[0.08em] text-white/40">
-                    {(currentSubforum?.threads ?? 0).toLocaleString('sr-Latn-RS')} tema ·{' '}
-                    {(currentSubforum?.posts ?? 0).toLocaleString('sr-Latn-RS')} objava
-                  </p>
+                  <p className="text-lead mt-1.5">{currentSubforum?.description ?? ''}</p>
+                  <ThreadCountLine subforum={currentSubforum} />
                 </div>
               </div>
             </header>
@@ -363,6 +501,7 @@ export default function ForumPage() {
         size="lg"
         footer={
           <>
+            <DraftStatusIndicator status={threadDraft.status} />
             <Button variant="secondary" size="sm" onClick={() => setComposerOpen(false)}>
               Otkaži
             </Button>
@@ -373,6 +512,24 @@ export default function ForumPage() {
         }
       >
         <form id="new-thread-form" onSubmit={handleCreateThread} className="space-y-4">
+          {/* F-EDIT2 — nenametljiv banner za vraćanje nesačuvanog drafta. */}
+          {composerOpen && (threadDraft.hasDraft || threadDraft.isStale) && (
+            <DraftRecoveryBanner
+              updatedAt={threadDraft.updatedAt}
+              isStale={threadDraft.isStale}
+              onRestore={() => threadDraft.restore()}
+              onDiscard={() => {
+                threadDraft.clear();
+                setNewTitle('');
+                setNewContent('');
+                setNewTags('');
+                setIsSpoiler(false);
+                setHasPoll(false);
+                setPollQuestion('');
+                setPollOptions(['', '']);
+              }}
+            />
+          )}
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label htmlFor="thread-subforum" className="mb-1 block text-sm font-semibold text-white/85">
@@ -506,7 +663,7 @@ export default function ForumPage() {
                         className="px-2 text-slate-500 transition hover:text-rose-400"
                         aria-label={`Ukloni opciju ${index + 1}`}
                       >
-                        ✕
+                        âœ•
                       </button>
                     )}
                   </div>
@@ -591,6 +748,12 @@ function ThreadRow({
               <ShieldAlert size={11} /> Spoiler
             </Badge>
           )}
+          {/* 6.x — tema ima prihvaćen odgovor (server šalje `solved`). */}
+          {thread.solved && (
+            <Badge tone="success">
+              <CheckCircle2 size={11} /> Rešeno
+            </Badge>
+          )}
           <Link
             to={`/thread/${thread.id}`}
             className="forum-row-title min-w-0 flex-1 truncate"
@@ -635,10 +798,27 @@ function ThreadRow({
         <span className="flex items-center gap-1.5 font-mono tabular-nums">
           <MessageSquare size={12} aria-hidden="true" />
           <span>{thread.replies || 0} odg.</span>
-          <span className="text-[var(--color-text-disabled)]" aria-hidden="true">·</span>
+          <span className="text-[var(--color-text-disabled)]" aria-hidden="true">Â·</span>
           <span className="text-[var(--color-text-muted)]">aktivno {formatDate(thread.lastReplyAt || thread.createdAt)}</span>
         </span>
       </div>
     </article>
+  );
+}
+
+/** Meta linija podforuma: broj tema i objava (jedan red, mono, tabularni brojevi). */
+function ThreadCountLine({
+  subforum,
+}: {
+  subforum?: { id: string; name: string; description: string; icon: string } | null;
+}) {
+  // Server ne vraća brojače po sekciji — do tada 0 umesto skoka layout-a.
+  const counters = subforum as { threads?: number; posts?: number } | null | undefined;
+  const threads = counters?.threads ?? 0;
+  const posts = counters?.posts ?? 0;
+  return (
+    <p className="meta-row mt-2.5 font-mono text-[11px] uppercase tracking-[0.08em]">
+      {threads.toLocaleString('sr-Latn-RS')} tema · {posts.toLocaleString('sr-Latn-RS')} objava
+    </p>
   );
 }

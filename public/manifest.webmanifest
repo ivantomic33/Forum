@@ -1,0 +1,23 @@
+{
+  "name": "NEXUS — Gaming portal i forum",
+  "short_name": "NEXUS",
+  "description": "Vesti iz gejminga, popusti, forum i zajednica igrača.",
+  "lang": "sr-Latn",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#06070e",
+  "theme_color": "#06070e",
+  "categories": ["games", "news", "social"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Popusti", "url": "/deals" },
+    { "name": "Forum", "url": "/forum" },
+    { "name": "Pretraga", "url": "/search" }
+  ]
+}

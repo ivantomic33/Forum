@@ -19,6 +19,55 @@ export interface AuthRequest extends Request {
 }
 
 /**
+ * N-04 — keš verzije sesije/ban flag-a (30 s).
+ * Bez keša bi svaki autentifikovani zahtev radio `SELECT` na `users`; sa kešom
+ * „odjavi se svuda“ i ban stupaju na snagu najviše 30 s posle promene, a ne
+ * tek kada istekne access token (ranije do 15 min).
+ *
+ * Ključ je `id:tv` — novi token (posle refresh-a) nikad ne nasleđuje keš
+ * odbačene verzije. Keš čuva samo `token_version` i `is_banned`; uloga,
+ * verifikacija i mute stanje se i dalje čitaju iz baze (ban sa istekom).
+ */
+const SESSION_CACHE_TTL_MS = 30_000;
+const SESSION_CACHE_MAX = 5_000;
+interface SessionSnapshot {
+  tokenVersion: number;
+  isBanned: boolean;
+  at: number;
+}
+const sessionCache = new Map<string, SessionSnapshot>();
+
+function readSessionCache(key: string): SessionSnapshot | null {
+  const hit = sessionCache.get(key);
+  if (!hit) return null;
+  if (Date.now() - hit.at > SESSION_CACHE_TTL_MS) {
+    sessionCache.delete(key);
+    return null;
+  }
+  return hit;
+}
+
+function writeSessionCache(key: string, snapshot: Omit<SessionSnapshot, 'at'>): void {
+  if (sessionCache.size >= SESSION_CACHE_MAX) sessionCache.clear();
+  sessionCache.set(key, { ...snapshot, at: Date.now() });
+}
+
+/**
+ * N-04 — briše keš za korisnika. Zove se kada server sam menja verziju sesije
+ * ili status („odjavi sve“, ban, odjava), da promena važi ODMAH na ovoj instanci,
+ * a ne do 30 s kasnije. Druge instance rade sa 30 s kašnjenjem (dokumentovano).
+ */
+export function invalidateSessionCache(userId?: string): void {
+  if (!userId) {
+    sessionCache.clear();
+    return;
+  }
+  for (const key of sessionCache.keys()) {
+    if (key.startsWith(`${userId}:`)) sessionCache.delete(key);
+  }
+}
+
+/**
  * Verzija sesije (F-06): token nosi `tv`, a izvor istine je `users.token_version`.
  * Svako povećanje poništava SVE ranije izdate tokene (odjava, „odjavi sve
  * uređaje“, promena/reset lozinke, brisanje naloga).
@@ -40,56 +89,74 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
 
   if (!token) return res.status(401).json({ error: 'Prijavite se.' });
 
+  let decoded: { id?: string; tv?: number };
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { id?: string; tv?: number };
-    if (!decoded.id) return res.status(401).json({ error: 'Nevažeći ili istekao token.' });
+    decoded = jwt.verify(token, JWT_SECRET) as { id?: string; tv?: number };
+  } catch {
+    return res.status(401).json({ error: 'Nevažeći ili istekao token.' });
+  }
+  if (!decoded.id) return res.status(401).json({ error: 'Nevažeći ili istekao token.' });
 
-    // Payload JWT nije izvor istine: proveri aktuelnog korisnika i ban/role iz baze.
-    // Greška baze = 503 (ne 401): sesija nije nevažeća, samo je status nepoznat —
-    // frontend ne sme da obriše token zbog privremenog pada baze.
-    let user;
-    try {
-      user = await db.users.findById(decoded.id);
-    } catch (error) {
-      req.log?.error({ err: error, userId: decoded.id }, 'auth_user_lookup_failed');
-      return res.status(503).json({ error: 'Autentifikacija trenutno nije dostupna. Pokušajte ponovo.' });
-    }
-    if (!user) {
-      return res.status(401).json({ error: 'Nalog nije aktivan.' });
-    }
+  // N-04 — keš `tv`/`is_banned` (30 s) po `id:tv`. Novi token (posle refresh-a)
+  // dobija nov ključ, pa nikad ne nasleđuje keš odbačene verzije.
+  const tv = decoded.tv ?? 0;
+  const cacheKey = `${decoded.id}:${tv}`;
+  const cached = readSessionCache(cacheKey);
 
-    // F-06 — token izdate pre odjave/reseta lozinke više ne važi.
-    if ((decoded.tv ?? 0) !== sessionVersionOf(user)) {
-      return res.status(401).json({ error: 'Sesija je istekla. Prijavite se ponovo.', code: 'SESSION_REVOKED' });
-    }
+  // Payload JWT nije izvor istine: proveri aktuelnog korisnika i ban/role iz baze.
+  // Greška baze = 503 (ne 401): sesija nije nevažeća, samo je status nepoznat —
+  // frontend ne sme da obriše token zbog privremenog pada baze.
+  let user;
+  try {
+    user = await db.users.findById(decoded.id);
+  } catch (error) {
+    req.log?.error({ err: error, userId: decoded.id }, 'auth_user_lookup_failed');
+    return res.status(503).json({ error: 'Autentifikacija trenutno nije dostupna. Pokušajte ponovo.' });
+  }
+  if (!user) {
+    return res.status(401).json({ error: 'Nalog nije aktivan.' });
+  }
 
-    if (user.isBanned) {
+  // F-06 + N-04 — token izdat pre odjave/reseta lozinke više ne važi. Keš ne
+  // odlaže poništenje: verzija iz tokena se poredi sa BAZOM na svakom zahtevu,
+  // a razlika se i kešira, pa sledeći zahtev istog tokena pada bez upita.
+  if (tv !== sessionVersionOf(user)) {
+    invalidateSessionCache(user.id);
+    res.setHeader('X-Session-Revoked', '1');
+    return res.status(401).json({ error: 'Sesija je istekla. Prijavite se ponovo.', code: 'SESSION_REVOKED' });
+  }
+
+  if (user.isBanned || cached?.isBanned) {
+    // Keš kaže da je ban aktivan → odgovor bez ponovnog upita do isteka keša (30 s).
+    // `users.is_banned === false` (odbanovanje) uvek tera svežu proveru `bans` tabele.
+    let activeBan: boolean;
+    if (cached?.isBanned && user.isBanned) {
+      activeBan = true;
+    } else {
       // Ban sa istekom: `bans` tabela je izvor istine; ako je istekao, ukini ga.
       // Greška baze NE sme da znači „ban je istekao“ (fail-closed, ne fail-open).
-      let activeBan;
       try {
-        activeBan = await db.bans.findActive(user.id);
+        activeBan = Boolean(await db.bans.findActive(user.id));
       } catch (error) {
         req.log?.error({ err: error, userId: user.id }, 'ban_lookup_failed');
         return res.status(503).json({ error: 'Status naloga trenutno nije moguće proveriti. Pokušajte kasnije.' });
       }
-
-      if (activeBan) {
-        return res.status(401).json({ error: 'Nalog nije aktivan.' });
-      }
-
-      await db.users.update(user.id, { isBanned: false }).catch(() => {});
-      await db.bans.lift(user.id).catch(() => {});
-      user.isBanned = false;
     }
 
-    req.user = { id: user.id, username: user.username, role: user.role, isVerified: user.isVerified };
-    return next();
-  } catch (error) {
-    // Greška van jwt provere ne sme da bude 401 — token bi bio obrisan bez razloga.
-    req.log?.error({ err: error }, 'auth_lookup_failed');
-    return res.status(503).json({ error: 'Autentifikacija trenutno nije dostupna. Pokušajte ponovo.' });
+    if (activeBan) {
+      writeSessionCache(cacheKey, { tokenVersion: tv, isBanned: true });
+      res.setHeader('X-Session-Revoked', '1');
+      return res.status(401).json({ error: 'Nalog nije aktivan.', code: 'SESSION_REVOKED' });
+    }
+
+    await db.users.update(user.id, { isBanned: false }).catch(() => {});
+    await db.bans.lift(user.id).catch(() => {});
+    user.isBanned = false;
   }
+
+  writeSessionCache(cacheKey, { tokenVersion: tv, isBanned: false });
+  req.user = { id: user.id, username: user.username, role: user.role, isVerified: user.isVerified };
+  return next();
 };
 
 export const authorize = (...roles: Array<'admin' | 'dev' | 'moderator' | 'member'>) => {

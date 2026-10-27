@@ -257,3 +257,138 @@ export async function deleteMedia(path: string): Promise<void> {
   const { error } = await supabase.storage.from(STORAGE_BUCKET).remove([clean]);
   if (error) throw new AppError(502, 'Fajl nije mogao da se obriše.');
 }
+/**
+ * 2.13.0 — PREUZIMANJE TUĐE SLIKE U NAŠ STORAGE (mirror).
+ *
+ * RSS uvoz je do sada upisivao URL slike sa izvora (Polygon, Kotaku…). To je
+ * hotlink: kad izvor promeni CDN ili blokira referrer, naslovna ostane prazna.
+ * Ovde se slika preuzima, ponovo kodira (isti `prepareImage`, pa nema EXIF-a)
+ * i čuva u našem bucket-u; vraća se naš javni URL.
+ *
+ * Namerno TIHO: svaka greška (404, prevelika slika, HTML umesto slike) vraća
+ * `null` i uvoz nastavlja sa originalnim URL-om. Storage nije obavezan.
+ */
+/** Ključ deduplikacije: URL bez `?query` i bez završne kose crte, malim slovima. */
+function imageKey(url: string): string {
+  return String(url).split('?')[0].replace(/\/$/, '').toLowerCase();
+}
+
+/**
+ * 2.13.1 — DE-DUPLIKACIJA SLIKA.
+ *
+ * Ista originalna slika ide u Storage samo JEDNOM. Bez ovoga je svaki uvoz iste
+ * naslovne pravio novi WebP (isti bajtovi, drugi URL) — a `cover_image` u bazi
+ * čuva već naš URL, pa se original više ne može prepoznati.
+ *
+ * Izvor istine je tabela `news_images` (schema-2.13.1-news-images.sql).
+ * Bez tabele: proveri `articles.cover_image` za isti originalni URL i vrati ga.
+ */
+async function findExistingImage(url: string): Promise<string | null> {
+  if (!storageConfigured()) return null;
+  const supabase = storageClient();
+  const key = imageKey(url);
+
+  try {
+    const { data, error } = await supabase
+      .from('news_images')
+      .select('mirrored_url, uses')
+      .eq('original_url', key)
+      .maybeSingle();
+    if (!error && data?.mirrored_url) {
+      // `uses` se uvećava „best effort“ — ne blokira uvoz (greška se ignoriše).
+      try {
+        await supabase
+          .from('news_images')
+          .update({ uses: Number(data.uses ?? 1) + 1 })
+          .eq('original_url', key);
+      } catch {
+        /* statistika nije kritična */
+      }
+      return data.mirrored_url as string;
+    }
+    if (error?.code === '42P01' || error?.code === 'PGRST205') {
+      // Tabela ne postoji (migracija nije puštena) — fallback ispod.
+    } else if (error) {
+      logger.debug({ err: error }, 'news_images_lookup_failed');
+    }
+  } catch {
+    /* tabela ili mreža — nastavi na fallback */
+  }
+
+  try {
+    const { data } = await supabase.from('articles').select('cover_image').eq('cover_image', url).limit(1).maybeSingle();
+    return data?.cover_image ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Zapamti mapiranje original → naš URL (za sledeći uvoz). */
+async function rememberImage(url: string, mirroredUrl: string): Promise<void> {
+  if (!storageConfigured()) return;
+  try {
+    const supabase = storageClient();
+    await supabase
+      .from('news_images')
+      .upsert({ original_url: imageKey(url), mirrored_url: mirroredUrl }, { onConflict: 'original_url' });
+  } catch {
+    /* tabela ne postoji — dedupe će raditi samo preko `articles` */
+  }
+}
+
+export async function mirrorRemoteImage(
+  url: string,
+  options: { ownerId: string; kind?: MediaKind; prefix?: string; timeoutMs?: number },
+): Promise<string | null> {
+  if (!url || !/^https:\/\//i.test(url)) return null;
+  if (!storageConfigured()) return null;
+
+  // 2.13.1 — ista slika se ne preslikava dvaput.
+  const existing = await findExistingImage(url);
+  if (existing) return existing;
+
+  const kind: MediaKind = options.kind ?? 'article';
+  const timeoutMs = options.timeoutMs ?? 15_000;
+  const ownerId = options.ownerId || 'system';
+
+  try {
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        Accept: 'image/avif,image/webp,image/*,*/*;q=0.8',
+      },
+      signal: AbortSignal.timeout(timeoutMs),
+      redirect: 'follow',
+    });
+    if (!res.ok) return null;
+
+    const declared = Number(res.headers.get('content-length') ?? 0);
+    if (declared > MAX_UPLOAD_BYTES) return null;
+
+    const buffer = Buffer.from(await res.arrayBuffer());
+    if (!buffer.length || !sniffImageType(buffer)) return null;
+
+    const prepared = await prepareImage(buffer, kind);
+    const supabase = storageClient();
+    const random = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+    const path = `${ownerId}/${options.prefix ?? 'news'}/${kind}-${random}.webp`;
+
+    const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(path, prepared.data, {
+      contentType: 'image/webp',
+      cacheControl: '31536000',
+      upsert: false,
+    });
+    if (error) {
+      logger.warn({ err: error, url }, 'image_mirror_upload_failed');
+      return null;
+    }
+
+    const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path);
+    await rememberImage(url, data.publicUrl);
+    return data.publicUrl;
+  } catch (err) {
+    logger.debug({ err, url }, 'image_mirror_failed');
+    return null;
+  }
+}

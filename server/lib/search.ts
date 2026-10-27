@@ -25,10 +25,13 @@ import { db } from './store.js';
 import { logger } from './logger.js';
 import { isMissingSchemaError } from './presence.js';
 
-export type SearchType = 'all' | 'articles' | 'threads' | 'deals';
+export type SearchType = 'all' | 'articles' | 'threads' | 'replies' | 'deals';
 
 export interface SearchHit {
-  type: 'article' | 'thread' | 'deal';
+  /** `reply` — pogodak u odgovoru foruma; `href` vodi na temu (`#post-<id>`). */
+  type: 'article' | 'thread' | 'reply' | 'deal';
+  /** Naslov teme na koju se pogađa odgovor (`null` za ostale tipove). */
+  threadTitle?: string | null;
   id: string;
   title: string;
   snippet: string;
@@ -243,6 +246,34 @@ async function rpcThreads(term: string, limit: number): Promise<SearchHit[]> {
   }));
 }
 
+async function rpcReplies(term: string, limit: number): Promise<SearchHit[]> {
+  const supabaseClient = supabase();
+  if (!supabaseClient) return searchRepliesFallback(term, limit);
+  const { data, error } = await supabaseClient.rpc('search_replies', {
+    query: term,
+    ts_query: sanitizeTsQuery(term),
+    ts_config: TS_CONFIG,
+    max_results: limit,
+  });
+  if (error) {
+    if (!isMissingSchemaError(error)) logger.warn({ err: error }, 'search_replies_rpc_failed');
+    return searchRepliesFallback(term, limit);
+  }
+  return (data ?? []).map((row: any) => ({
+    type: 'reply' as const,
+    id: row.id,
+    title: row.thread_title ?? 'Odgovor u temi',
+    threadTitle: row.thread_title ?? null,
+    snippet: plainText(row.snippet),
+    // Duboki link na odgovor — ista konvencija kao u `ThreadPage` (`#post-<id>`).
+    href: `/thread/${row.thread_id}#post-${row.id}`,
+    meta: row.subforum ? row.subforum : null,
+    extra: row.author ? `@${row.author}` : null,
+    createdAt: row.created_at,
+    rank: Number(row.rank) || 0,
+  }));
+}
+
 async function rpcDeals(term: string, limit: number): Promise<SearchHit[]> {
   const supabaseClient = supabase();
   if (!supabaseClient) return searchDealsFallback(term, limit);
@@ -274,7 +305,7 @@ async function rpcDeals(term: string, limit: number): Promise<SearchHit[]> {
 // =====================
 
 export async function searchArticlesFallback(term: string, limit: number): Promise<SearchHit[]> {
-  const articles = await db.articles.findAll({ status: 'published' });
+  const articles = await db.articles.findAll({ status: 'published', publishedBefore: new Date().toISOString() });
   return articles
     .map((article) => ({
       article,
@@ -316,6 +347,34 @@ export async function searchThreadsFallback(term: string, limit: number): Promis
       createdAt: thread.createdAt,
       rank,
     }));
+}
+
+export async function searchRepliesFallback(term: string, limit: number): Promise<SearchHit[]> {
+  const threads = await db.forum.listThreads({ limit: 200, offset: 0, sort: 'hot' });
+  const replies = (await Promise.all(threads.map((thread) => db.forum.listReplies(thread.id).catch(() => [])))).flat();
+  const threadById = new Map(threads.map((thread) => [thread.id, thread]));
+  return replies
+    .filter((reply) => !reply.isDeleted)
+    // Naslov teme ne ulazi u rang — tražimo pogodak u tekstu odgovora.
+    .map((reply) => ({ reply, rank: fallbackRank('', plainText(reply.content, 5000), term) }))
+    .filter((entry) => entry.rank > 0)
+    .sort((a, b) => b.rank - a.rank || new Date(b.reply.createdAt).getTime() - new Date(a.reply.createdAt).getTime())
+    .slice(0, limit)
+    .map(({ reply, rank }) => {
+      const thread = threadById.get(reply.threadId);
+      return {
+        type: 'reply' as const,
+        id: reply.id,
+        title: thread?.title ?? 'Odgovor u temi',
+        threadTitle: thread?.title ?? null,
+        snippet: plainText(reply.content),
+        href: `/thread/${reply.threadId}#post-${reply.id}`,
+        meta: thread?.subforum ?? null,
+        extra: reply.author ? `@${reply.author}` : null,
+        createdAt: reply.createdAt,
+        rank,
+      };
+    });
 }
 
 export async function searchDealsFallback(term: string, limit: number): Promise<SearchHit[]> {
@@ -386,7 +445,7 @@ export async function suggestFor(q: string): Promise<string | null> {
     for (const word of foldSrpski(title).split(' ')) if (word.length >= 3) words.add(stemSrpski(word));
   };
   try {
-    const articles = await db.articles.findAll({ status: 'published' });
+    const articles = await db.articles.findAll({ status: 'published', publishedBefore: new Date().toISOString() });
     articles.forEach((article) => collect(article.title));
   } catch {
     /* pretraga ne sme da padne zbog sugestije */
@@ -413,14 +472,17 @@ export async function searchAll({ q, type = 'all', limit = 10 }: SearchOptions):
   if (term.length < MIN_QUERY_LENGTH) return { hits: [], total: 0, suggestion: null };
 
   const perType = Math.min(Math.max(limit, 1), 20);
-  const [articles, threads, deals] = await Promise.all([
+  // Odgovori se vraćaju samo na eksplicitni `type=replies`: u „all“ režimu bi
+  // (zbog kratkih, čestih reči) potisnuli teme i članke koji su bolji pogodak.
+  const [articles, threads, replies, deals] = await Promise.all([
     type === 'all' || type === 'articles' ? rpcArticles(term, perType) : Promise.resolve([]),
     type === 'all' || type === 'threads' ? rpcThreads(term, perType) : Promise.resolve([]),
+    type === 'replies' ? rpcReplies(term, perType) : Promise.resolve([]),
     type === 'all' || type === 'deals' ? rpcDeals(term, perType) : Promise.resolve([]),
   ]);
 
   // U „all“ režimu svaki tip dobija najviše `perType`, pa se lista seče.
-  const hits = [...articles, ...threads, ...deals].sort((a, b) => b.rank - a.rank).slice(0, perType);
+  const hits = [...articles, ...threads, ...replies, ...deals].sort((a, b) => b.rank - a.rank).slice(0, perType);
   // Sugestija se računa samo kada ništa nije nađeno (jeftinije i nema zbunjivanja).
   const suggestion = hits.length === 0 ? await suggestFor(term) : null;
   return { hits, total: hits.length, suggestion };

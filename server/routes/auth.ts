@@ -1,8 +1,9 @@
-﻿import { Router } from 'express';
+﻿import crypto from 'node:crypto';
+import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { db, xpForLevel } from '../lib/store.js';
-import { authenticate, generateToken, type AuthRequest } from '../middleware/auth.js';
+import { authenticate, generateToken, invalidateSessionCache, type AuthRequest } from '../middleware/auth.js';
 import { sanitizeRichText } from '../middleware/sanitize.js';
 import {
   validateUsername,
@@ -14,18 +15,33 @@ import {
   BCRYPT_COST,
 } from '../lib/validation.js';
 import { createActionToken, consumeActionToken, peekActionToken } from '../lib/actionTokens.js';
-import { sendVerificationEmail, sendPasswordResetEmail, emailConfigured, appUrl } from '../lib/email.js';
+import { verificationReminder, verificationThanks, verificationWelcome } from '../lib/notifications.js';
+import { sendVerificationEmail, sendPasswordResetEmail, appUrl } from '../lib/email.js';
+import { sendLoginAlert } from '../lib/loginAlert.js';
 import { registerSchema, loginSchema, forgotPasswordSchema, resetPasswordSchema, mfaLoginSchema, totpDisableSchema, validate } from '../lib/schemas.js';
 import { AppError } from '../lib/http.js';
 import { devTokensExposed } from '../lib/env.js';
 import { ownerUser } from '../lib/userShape.js';
+import {
+  clearTrustCookies,
+  deviceIdFrom,
+  forgetAllDevices,
+  isTrustedDevice,
+  listDevices,
+  rememberDevice,
+  setDeviceCookie,
+  TRUST_TTL_MS,
+} from '../lib/trustedDevices.js';
 import { getPublicSiteSettings } from './admin.js';
 import {
   ACCESS_COOKIE,
   REFRESH_COOKIE,
+  CSRF_COOKIE,
   ACCESS_TOKEN_TTL,
   clearSessionCookies,
   createRefreshSession,
+  currentSessionId,
+  listUserSessions,
   revokeAllSessions,
   revokeRefreshToken,
   rotateRefreshSession,
@@ -36,6 +52,7 @@ import {
   decryptSecret,
   encryptSecret,
   clearEnrollment,
+  consumeEnrollment,
   generateRecoveryCodes,
   isLocked,
   lockUntilIso,
@@ -56,11 +73,32 @@ import {
   enabledOAuthProviders,
 } from '../lib/authConfig.js';
 import { signState, verifyState, authorizationUrl, createPkce, safeRedirect } from '../lib/oauth.js';
+import {
+  AuthPasskeyError,
+  authenticationOptions,
+  consumeChallenge,
+  deletePasskey,
+  findPasskeyByCredentialId,
+  findPasskeyById,
+  listPasskeys,
+  newChallenge,
+  passkeyCount,
+  registrationOptions,
+  rpId,
+  savePasskey,
+  touchPasskey,
+  verifyAssertion,
+  verifyRegistration,
+} from '../lib/passkeys.js';
 import { turnstileMiddleware } from '../middleware/turnstile.js';
-import { setPresence, isUserOnline, presenceMap } from '../lib/presence.js';
+import { setPresence, isUserOnline, presenceMap, markSignedIn } from '../lib/presence.js';
+import { recordDailyLogin } from '../lib/dailyLoop.js';
 import type { UserRecord } from '../lib/store.js';
 
 const router = Router();
+
+/** Kratki UUID helper — passkey ID (isti oblik kao `crypto.randomUUID`). */
+const cryptoRandomId = () => crypto.randomUUID();
 
 /**
  * Poruka za klijenta bez odavanja da li nalog postoji.
@@ -124,6 +162,26 @@ function readMfaTicket(raw: unknown): string | null {
   }
 }
 
+/**
+ * 6.x — „nova prijava“: bezbednosni signal bez mejla.
+ *
+ * Mejl je ugašen (samo verifikacija i reset lozinke), pa upozorenje stiže kao
+ * in-app `warning` u inbox/zvonce/push: uređaj, IP i vreme, sa linkom na sesije
+ * gde postoji „Odjavi sve uređaje“ (odgovor na „Nisam ja“).
+ */
+async function maybeSendLoginAlert(
+  user: UserRecord,
+  req: AuthRequest,
+  knownBefore: Array<{ userAgent: string | null; ip: string | null }> = [],
+): Promise<void> {
+  await sendLoginAlert({
+    userId: user.id,
+    userAgent: req.get('user-agent'),
+    ip: req.ip ?? null,
+    knownBefore,
+  });
+}
+
 /** Ban provera posle lozinke: `bans` tabela je izvor istine za istek. */
 async function activeBanFor(user: UserRecord) {
   if (!user.isBanned) return null;
@@ -183,6 +241,17 @@ router.post('/register', turnstileMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'Privremene (temp) email adrese nisu dozvoljene. Koristite pravu email adresu.' });
     }
 
+    // Admin podešavanja: blocklist/allowlist email domena (blocklist ima prednost).
+    const domain = cleanEmail.split('@')[1] ?? '';
+    if (settings.blockedEmailDomains.includes(domain)) {
+      return res.status(400).json({ error: 'Registracija sa ovog email domena nije dozvoljena.' });
+    }
+    if (settings.allowedEmailDomains.length > 0 && !settings.allowedEmailDomains.includes(domain)) {
+      return res.status(400).json({
+        error: `Registracija je dozvoljena samo sa sledećih domena: ${settings.allowedEmailDomains.join(', ')}.`,
+      });
+    }
+
     if (!isPasswordValid(password)) {
       return res.status(400).json({
         error: passwordError(password) ?? 'Lozinka ne ispunjava zahteve.',
@@ -205,6 +274,15 @@ router.post('/register', turnstileMiddleware, async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, BCRYPT_COST);
     const now = new Date().toISOString();
 
+    // Prvi registrovani korisnik postaje admin — bez demo seed-a ovo je jedini
+    // način da nastane administratorski nalog (idempotentno: kasnije registracije
+    // uvek dobijaju 'member').
+    const isFirstUser = (await db.users.count({ excludeBanned: true })) === 0;
+    const role = isFirstUser ? 'admin' : 'member';
+    if (isFirstUser) {
+      req.log?.info({ email: cleanEmail }, 'first_user_promoted_to_admin');
+    }
+
     const newUser = await db.users.create({
       id: `usr_${Date.now().toString(36)}`,
       username: cleanUsername,
@@ -212,14 +290,14 @@ router.post('/register', turnstileMiddleware, async (req, res) => {
       password: hashedPassword,
       avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(cleanUsername)}`,
       bio: 'Novi član NEXUS gejming zajednice.',
-      role: 'member',
+      role,
       level: 1,
       xp: 0,
       xpNeeded: xpForLevel(1),
       karma: 0,
       badges: [], // first_post se dodeljuje tek na prvoj temi/odgovoru (awardXp)
       connectedAccounts: {},
-      isVerified: false,
+      isVerified: isFirstUser,
       isBanned: false,
       status: 'online',
       tokenVersion: 0,
@@ -247,6 +325,21 @@ router.post('/register', turnstileMiddleware, async (req, res) => {
       // B-02 — u dev režimu link mora da postoji i kada je mejl provajderu poslat
       // (odgovor verovatno nije stigao) ili nije poslat uopšte.
       req.log?.info({ verifyUrl: `${appUrl()}/verify?token=${verification.token}` }, 'dev_verification_link');
+    }
+
+    // 3.0.0 — verifikacioni bot: poruka u inbox odmah posle registracije.
+    // Link sa tokenom SAMO kada je mejl zaista poslat ili kada je dev režim
+    // eksplicitno uključen — inače bi poruka vodila na mrtav `/verify?token=`.
+    // `void` — notifikacija ne sme da obori registraciju.
+    if (!newUser.isVerified) {
+      void verificationWelcome({
+        userId: newUser.id,
+        username: newUser.username,
+        verifyLink: devTokensExposed()
+          ? `/verify?token=${encodeURIComponent(verification.token)}`
+          : null,
+        emailSent: mailSent,
+      }).catch(() => null);
     }
 
     // F-32 — sesija je odmah u HttpOnly cookie-ju.
@@ -288,13 +381,28 @@ router.post('/login', turnstileMiddleware, async (req, res) => {
       : await db.users.findByUsername(account);
 
     if (!user) {
-      return res.status(401).json({ error: 'Pogrešan email ili lozinka.' });
+      return res.status(401).json({ error: 'Pogrešan email ili lozinka.', code: 'INVALID_CREDENTIALS' });
     }
 
     // Nalozi kreirani isključivo preko OAuth-a nemaju lozinku (bcrypt hash prazan).
-    const isMatch = Boolean(user.password) && (await bcrypt.compare(password, user.password));
+    // 5.2 — umesto generičkog „pogrešna lozinka“ kažemo korisniku šta stварno treba
+    // (inače traži reset lozinke koja nikad nije ni postojala). Ovo je namerno:
+    // nalog i provajder se saznaju već iz `check-email`-a na registraciji.
+    if (!user.password) {
+      const providers = await db.oauth.listForUser(user.id).catch(() => []);
+      const provider = providers[0]?.provider ?? null;
+      return res.status(409).json({
+        error: provider
+          ? `Ovaj nalog koristi prijavu preko ${provider}. Prijavite se preko tog provajdera.`
+          : 'Ovaj nalog nema lozinku. Prijavite se preko povezanog provajdera ili resetujte lozinku.',
+        code: 'OAUTH_ONLY_ACCOUNT',
+        provider,
+      });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      return res.status(401).json({ error: 'Pogrešan email ili lozinka.' });
+      return res.status(401).json({ error: 'Pogrešan email ili lozinka.', code: 'INVALID_CREDENTIALS' });
     }
 
     // Ban se proverava TEK posle lozinke — ranije je 403 pre `bcrypt.compare`
@@ -307,6 +415,7 @@ router.post('/login', turnstileMiddleware, async (req, res) => {
         error: activeBan.expiresAt
           ? `Vaš nalog je suspendovan do ${new Date(activeBan.expiresAt).toLocaleString('sr-RS')}.`
           : 'Vaš nalog je suspendovan. Obratite se podršci.',
+        code: 'BAN_ACTIVE',
         banExpiresAt: activeBan.expiresAt ?? null,
         banReason: activeBan.reason ?? null,
       });
@@ -321,13 +430,54 @@ router.post('/login', turnstileMiddleware, async (req, res) => {
       }
     }
 
+    // F-15 — trusted uređaj preskače TOTP korak. Provera je posle lozinke
+    // (cookie sam po sebi nikad nije dokaz) i nikad ne baca — greška baze
+    // znači „nije trusted“, pa se traži kod.
+    if (user.totpEnabledAt) {
+      const trusted = await isTrustedDevice(req, user.id, req.get('user-agent'));
+      if (trusted) {
+        await db.users.update(user.id, { status: 'online', lastSeenAt: new Date().toISOString() });
+        await markSignedIn(user);
+        const rememberMe = req.body.rememberMe === true;
+        const { csrfToken } = await establishSession(req as AuthRequest, res, user, { rememberMe });
+        await setPresence(user.id, true).catch(() => {});
+        // 5.3 — prijava je aktivnost za streak (i trustovan uređaj je prijava).
+        const daily = await recordDailyLogin(user.id);
+        req.log?.info({ userId: user.id }, 'mfa_skipped_trusted_device');
+        return res.json({
+          user: { ...ownerUser(user), isOnline: true },
+          rememberMe,
+          csrfToken,
+          trustedDevice: true,
+          loginBonus: daily.bonusXp > 0 ? { xp: daily.bonusXp, streak: daily.streakDays } : null,
+        });
+      }
+    }
+
     // F-33 — lozinka je tačna, ali nalog ima 2FA: NE izdajemo sesiju.
+    // 5.2 — ako nalog ima i passkey, drugi faktor može biti passkey umesto koda
+    // (biometrija je jača od prepisivanja 6 cifara). `challengeId` ide uz opcije.
     if (user.totpEnabledAt) {
       await db.users.update(user.id, { lastSeenAt: new Date().toISOString() }).catch(() => {});
+      let passkeyOptions: Record<string, unknown> | null = null;
+      try {
+        const credentials = await listPasskeys(user.id);
+        if (credentials.length) {
+          const allowCredentials = credentials.map((row) => row.credentialId);
+          const challenge = newChallenge({ purpose: 'login', allowCredentials });
+          passkeyOptions = {
+            ...authenticationOptions(challenge.challenge, allowCredentials),
+            __challengeId: challenge.challengeId,
+          };
+        }
+      } catch {
+        // Passkey je dodatak; bez njega 2FA korak nastavlja sa TOTP kodom.
+      }
       return res.json({
         requires2fa: true,
         mfaTicket: issueMfaTicket(user),
         ...mfaMetadata(user),
+        ...(passkeyOptions ? { passkeyOptions } : {}),
       });
     }
 
@@ -335,6 +485,11 @@ router.post('/login', turnstileMiddleware, async (req, res) => {
       status: 'online',
       lastSeenAt: new Date().toISOString(),
     });
+    // B-15 — `users.status` je samo keš; prisustvo je red u `user_presence`.
+    await markSignedIn(user);
+
+    // 5.5 — stanje PRE nove sesije (za „nova prijava“ mejl).
+    const knownSessions = await db.sessions.listActiveForUser(user.id).catch(() => []);
 
     // „Zapamti me“: refresh sesija 7 dana; inače 12h (access je uvek 15 min).
     const rememberMe = req.body.rememberMe === true;
@@ -342,8 +497,19 @@ router.post('/login', turnstileMiddleware, async (req, res) => {
 
     // 2.6.1 — prisustvo posle uspešne prijave (2FA korak čeka heartbeat iz SPA-e).
     await setPresence(user.id, true).catch(() => {});
+    // 5.5 — „nova prijava“ mejl. Snimak sesija se pravi PRE izdavanja nove
+    // (inače bi nova sesija bila „poznata“ i mejl nikad ne bi otišao).
+    void maybeSendLoginAlert(user, req as AuthRequest, knownSessions);
+    // 5.3 — dnevni streak/bonus (idempotentno po danu).
+    const daily = await recordDailyLogin(user.id);
 
-    res.json({ user: { ...ownerUser(user), isOnline: true }, rememberMe, csrfToken });
+    res.json({
+      user: { ...ownerUser(user), isOnline: true },
+      rememberMe,
+      csrfToken,
+      loginBonus: daily.bonusXp > 0 ? { xp: daily.bonusXp, streak: daily.streakDays } : null,
+      loginStreak: daily.streakDays,
+    });
   } catch (error: any) {
     req.log?.error({ err: error }, 'login_failed');
     res.status(500).json({ error: 'Greška pri prijavi. Pokušajte ponovo.' });
@@ -374,7 +540,8 @@ router.post('/verify-email', async (req, res) => {
     const user = await db.users.findById(peek.userId);
     if (!user) return res.status(404).json({ error: 'Korisnik nije pronađen.' });
 
-    // Već verifikovan (npr. dvostruki klik / StrictMode) — uspeh bez trošenja.
+    // Već verifikovan (npr. dvostruki klik / StrictMode) — uspeh bez trošenja
+    // i bez druge bot poruke (ne spamujemo zahvalnicu).
     if (user.isVerified) {
       return res.json({ message: 'Email adresa je već verifikovana.', isVerified: true });
     }
@@ -391,6 +558,9 @@ router.post('/verify-email', async (req, res) => {
       req.log?.warn({ err: error, userId: user.id }, 'verify_email_token_consume_failed');
     });
 
+    // 3.0.0 — bot zahvaljuje i objašnjava šta je sada otključano.
+    void verificationThanks({ userId: user.id, username: user.username }).catch(() => null);
+
     res.json({ message: 'Email adresa je uspešno verifikovana.', isVerified: true });
   } catch (error) {
     // Ranije je `catch {}` gutao razlog — 500 bez traga u logu.
@@ -403,6 +573,83 @@ router.post('/verify-email', async (req, res) => {
 router.get('/verify-email/:token', async (req, res) => {
   const peek = await peekActionToken(req.params.token, 'verify_email');
   res.json({ valid: Boolean(peek) });
+});
+
+/**
+ * GET /api/auth/verification-status — za trajni banner „potvrdi email“.
+ * Namerno NE vraća token: ponovno slanje ide kroz `resend-verification`.
+ */
+router.get('/verification-status', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const user = await db.users.findById(req.user!.id);
+    if (!user) return res.status(401).json({ error: 'Nalog nije aktivan.', code: 'SESSION_REVOKED' });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ isVerified: Boolean(user.isVerified), email: user.email });
+  } catch (err) {
+    req.log?.error({ err }, 'verification_status_failed');
+    res.status(500).json({ error: 'Status verifikacije nije dostupan.' });
+  }
+});
+
+/**
+ * POST /api/auth/resend-verification — novi link za verifikaciju email-a.
+ *
+ * Anti-abuse: 30 s po nalogu — bez toga bi dugme u banneru bilo mašina za
+ * generisanje mejlova. Stari tokeni ostaju u tabeli do isteka (24h) i svi
+ * važeći tokeni za isti nalog verifikuju isti email, pa stari link nije rizik.
+ */
+const RESEND_COOLDOWN_MS = 30_000;
+const lastResendAt = new Map<string, number>();
+
+router.post('/resend-verification', authenticate, turnstileMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const user = await db.users.findById(req.user!.id);
+    if (!user) return res.status(401).json({ error: 'Nalog nije aktivan.', code: 'SESSION_REVOKED' });
+    if (user.isVerified) {
+      return res.status(409).json({ error: 'Email adresa je već verifikovana.', code: 'ALREADY_VERIFIED' });
+    }
+
+    const now = Date.now();
+    const previous = lastResendAt.get(user.id) ?? 0;
+    if (now - previous < RESEND_COOLDOWN_MS) {
+      const retryAfter = Math.ceil((RESEND_COOLDOWN_MS - (now - previous)) / 1000);
+      res.setHeader('Retry-After', String(retryAfter));
+      return res.status(429).json({
+        error: `Sačekajte još ${retryAfter} s pre novog zahteva.`,
+        code: 'RESEND_COOLDOWN',
+        retryAfter,
+      });
+    }
+    lastResendAt.set(user.id, now);
+    if (lastResendAt.size > 5_000) {
+      // Prosečan ~30 s po nalogu; stariji unosi se brišu kada mapa poraste.
+      for (const [id, at] of lastResendAt) if (now - at > 10 * 60_000) lastResendAt.delete(id);
+    }
+
+    const verification = await createActionToken(user.id, 'verify_email');
+    const sent = await sendVerificationEmail(user.email, user.username, verification.token);
+    req.log?.info({ userId: user.id, sent }, 'verification_email_resent');
+
+    // 3.0.0 — bot podseća u inbox-u (i nosi link u dev režimu, kada mejl
+    // provajder nije podešen). Ne blokira odgovor.
+    if (sent || devTokensExposed()) {
+      void verificationReminder({
+        userId: user.id,
+        username: user.username,
+        verifyLink: devTokensExposed() ? `/verify?token=${encodeURIComponent(verification.token)}` : null,
+      }).catch(() => null);
+    } else {
+      req.log?.warn({ userId: user.id }, 'verification_email_not_sent');
+    }
+    res.json({
+      message: 'Poslali smo novi link za potvrdu email adrese.',
+      sent,
+      ...(devTokensExposed() ? { verificationToken: verification.token } : {}),
+    });
+  } catch (err) {
+    req.log?.error({ err }, 'resend_verification_failed');
+    res.status(500).json({ error: 'Slanje mejla nije uspelo. Pokušajte ponovo.' });
+  }
 });
 
 // =====================
@@ -461,6 +708,8 @@ router.post('/reset-password', async (req, res) => {
 
     await db.users.update(consumed.userId, { password: await bcrypt.hash(password, BCRYPT_COST) });
     // F-06 — reset lozinke poništava sve postojeće sesije (uključujući napadačevu).
+    // N-04 — keš `tv` se briše odmah (inače bi do 30 s stari token još prolazio).
+    invalidateSessionCache(consumed.userId);
     await db.users.bumpSessionVersion(consumed.userId).catch((err) => {
       req.log?.error({ err, userId: consumed.userId }, 'session_version_bump_failed');
     });
@@ -468,6 +717,9 @@ router.post('/reset-password', async (req, res) => {
     await revokeAllSessions(consumed.userId, 'password_reset').catch((err) => {
       req.log?.error({ err, userId: consumed.userId }, 'session_revoke_failed');
     });
+    // F-15 — „zapamti ovaj uređaj“ se briše resetom: trusted cookie je napravljen
+    // pod starom lozinkom, pa ne sme da preskoči 2FA posle reset-a.
+    await forgetAllDevices(consumed.userId);
     res.json({ message: 'Lozinka je uspešno promenjena. Možete se prijaviti.' });
   } catch {
     res.status(500).json({ error: 'Promena lozinke nije uspela. Pokušajte ponovo.' });
@@ -578,6 +830,7 @@ router.post('/logout', async (req, res) => {
 
     if (userId) {
       // F-06 — token se poništava na serveru: `tv` u JWT-u više neće odgovarati.
+      invalidateSessionCache(userId);
       await db.users.bumpSessionVersion(userId).catch((err) => {
         req.log?.error({ err, userId }, 'session_version_bump_failed');
       });
@@ -606,6 +859,9 @@ router.post('/logout-all', authenticate, async (req: AuthRequest, res) => {
     const user = await db.users.findById(req.user!.id);
     if (!user) return res.status(404).json({ error: 'Korisnik nije pronađen.' });
 
+    // N-04 — „odjavi se svuda“ mora da važi odmah na ovoj instanci: obriši keš
+    // pre povećanja verzije, pa već sledeći zahtev sa starim `tv` dobija 401.
+    invalidateSessionCache(user.id);
     const tokenVersion = await db.users.bumpSessionVersion(user.id);
     await revokeAllSessions(user.id, 'logout_all').catch(() => {});
     user.tokenVersion = tokenVersion;
@@ -615,6 +871,86 @@ router.post('/logout-all', authenticate, async (req: AuthRequest, res) => {
   } catch (err) {
     req.log?.error({ err }, 'auth_route_failed');
     res.status(500).json({ error: 'Odjava nije uspela.' });
+  }
+});
+
+/**
+ * `invalidateSessionCache` štiti `tv` (verziju) od keša od 30 s, ali access JWT
+ * i dalje fizički postoji i `authenticate` ga prihvata. Zato posle poništavanja
+ * sesija klijentu skinemo i `nx_at` (refresh rotacija ga ne može oživeti jer je
+ * i refresh opozvan). „Odjavi ostale uređaje“ zato ne dira ovu sesiju — njoj
+ * ostaje cookie, a `tv` se odabere u serveru.
+ */
+function dropAccessCookie(res: any) {
+  res.clearCookie(ACCESS_COOKIE, { path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production' });
+}
+
+/* ----------------------------------------------------------------
+ * 5.1 — UPRAVLJANJE SESIJAMA (profil → Sesije)
+ * ---------------------------------------------------------------- */
+
+/** GET /api/auth/sessions — aktivne sesije (jedan red po uređaju/porodici). */
+router.get('/sessions', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const sessions = await listUserSessions(req, req.user!.id);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ sessions, count: sessions.length });
+  } catch (err) {
+    req.log?.error({ err }, 'sessions_list_failed');
+    res.status(500).json({ error: 'Lista sesija nije dostupna.' });
+  }
+});
+
+/**
+ * DELETE /api/auth/sessions/:id — odjava jedne sesije (uređaja).
+ * `id` je `familyId` porodice rotacije, a ne pojedinačni red: poništava se ceo
+ * lanac, jer bi inače sledeća rotacija oživela sesiju iz istog lanca.
+ *
+ * Ako korisnik odjavi sesiju iz koje je zahtev došao, cookie-ji se brišu i
+ * klijent dobija `current: true` da zna da je i on sam odjavljen.
+ */
+router.delete('/sessions/:id', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const familyId = String(req.params.id ?? '');
+    if (!/^[A-Za-z0-9-]{8,64}$/.test(familyId)) {
+      return res.status(400).json({ error: 'Neispravan ID sesije.' });
+    }
+
+    const current = await currentSessionId(req);
+    const revoked = await db.sessions.revokeFamilyForUser(req.user!.id, familyId, 'session_revoked').catch(() => false);
+    if (!revoked) return res.status(404).json({ error: 'Sesija nije pronađena.' });
+
+    // Brisanje cookie-ja ima smisla SAMO za tekući uređaj; `clearCookie` za tuđu
+    // porodicu bi odjavio i laptop koji je zahtev poslao.
+    const isCurrent = current === familyId;
+    if (isCurrent) clearSessionCookies(res);
+    req.log?.info({ userId: req.user!.id, familyId }, 'session_revoked_by_user');
+    res.json({ revoked: true, current: isCurrent });
+  } catch (err) {
+    req.log?.error({ err }, 'session_revoke_failed');
+    res.status(500).json({ error: 'Odjava sesije nije uspela.' });
+  }
+});
+
+/** DELETE /api/auth/sessions — odjava sa SVIH uređaja (i ovog). */
+router.delete('/sessions', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const userId = req.user!.id;
+    invalidateSessionCache(userId);
+    await db.users.bumpSessionVersion(userId).catch((err) => {
+      req.log?.error({ err, userId }, 'session_version_bump_failed');
+    });
+    await revokeAllSessions(userId, 'logout_all_devices').catch(() => {});
+    await forgetAllDevices(userId).catch(() => {});
+    await db.users.update(userId, { status: 'offline', lastSeenAt: new Date().toISOString() }).catch(() => {});
+    await setPresence(userId, false).catch(() => {});
+    clearSessionCookies(res);
+    dropAccessCookie(res);
+    clearTrustCookies(res);
+    res.json({ revoked: true, all: true });
+  } catch (err) {
+    req.log?.error({ err }, 'sessions_revoke_all_failed');
+    res.status(500).json({ error: 'Odjava sa svih uređaja nije uspela.' });
   }
 });
 
@@ -664,6 +1000,9 @@ router.post('/refresh', async (req, res) => {
       accessToken: token,
       refreshToken: result.token,
       refreshExpiresAt: result.expiresAt,
+      // Zadrži token koji je klijent poslao — bez ovoga se `nx_csrf` rotira
+      // na svakom refresh-u i paralelni zahtevi padaju na CSRF proveri.
+      currentCsrfToken: req.cookies?.[CSRF_COOKIE],
     });
     // 2.6.1 — posle drugog koraka 2FA korisnik je stvarno prisutan.
     await setPresence(user.id, true).catch(() => {});
@@ -726,6 +1065,16 @@ async function checkSecondFactor(
     totpFailedAttempts: lock ? 0 : failed,
     totpLockedUntil: lock,
   }).catch(() => {});
+
+  // 5.1 — zaključavanje 2FA je znak napada: sve sesije (i refresh-ovi) idu na
+  // odjavu. Napadač koji je već držao sesiju ne sme da je nastavi; korisnik se
+  // ponovo prijavljuje kad lock istekne (ili recovery kodom posle njega).
+  if (lock) {
+    invalidateSessionCache(user.id);
+    await db.users.bumpSessionVersion(user.id).catch(() => {});
+    await revokeAllSessions(user.id, 'totp_lockout').catch(() => {});
+    // Mejl alert ugašen: obaveštenje o zaključanom 2FA ostaje u aplikaciji.
+  }
   return { status: 401, body: { error: 'Pogrešan kod. Pokušajte ponovo.', code: 'TOTP_INVALID' } };
 }
 /**
@@ -748,8 +1097,19 @@ router.post('/2fa/login', turnstileMiddleware, async (req, res) => {
     if (!user || !user.totpEnabledAt) {
       return res.status(401).json({ error: 'Prijava je istekla. Unesite lozinku ponovo.', code: 'MFA_TICKET_INVALID' });
     }
+
+    // F-15 — uređaj je već zapamćen (npr. drugi tab), a korisnik ponovo traži
+    // „ne traži kod“: ne izdajemo novu sesiju (ovo je drugi korak, kod je obavezan),
+    // samo javimo klijentu da uređaj važi — bez trošenja tokena i bez 401.
+    if (parsed.data.trustDevice === true && (await isTrustedDevice(req, user.id, req.get('user-agent')))) {
+      return res.status(200).json({
+        trustedDevice: true,
+        alreadyTrusted: true,
+        message: 'Ovaj uređaj je već zapamćen — prijavite se lozinkom.',
+      });
+    }
     if (await activeBanFor(user)) {
-      return res.status(403).json({ error: 'Vaš nalog je suspendovan. Obratite se podršci.' });
+      return res.status(403).json({ error: 'Vaš nalog je suspendovan. Obratite se podršci.', code: 'BAN_ACTIVE' });
     }
 
     const result = await checkSecondFactor(user, parsed.data.code);
@@ -758,13 +1118,26 @@ router.post('/2fa/login', turnstileMiddleware, async (req, res) => {
     }
 
     await db.users.update(user.id, { status: 'online', lastSeenAt: new Date().toISOString() });
-    const rememberMe = parsed.data.rememberMe === true;    const refreshed = (await db.users.findById(user.id)) ?? user;
+    await markSignedIn(user);
+    const rememberMe = parsed.data.rememberMe === true;
+    const sessionsBefore = await db.sessions.listActiveForUser(user.id).catch(() => []);
+    const refreshed = (await db.users.findById(user.id)) ?? user;
     const { csrfToken } = await establishSession(req as AuthRequest, res, refreshed, { rememberMe });
+
+    // F-15 — „zapamti ovaj uređaj 30 dana“: token ide u HttpOnly cookie, u bazu samo hash.
+    // Isti `device_id` uvek rotira token (ukradeni cookie važi do sledeće prijave).
+    const trusted = parsed.data.trustDevice === true
+      ? await rememberDevice(res, user.id, req.get('user-agent'), deviceIdFrom(req))
+      : false;
+    void maybeSendLoginAlert(user, req as AuthRequest, sessionsBefore);
+    const daily = await recordDailyLogin(user.id);
 
     res.json({
       user: ownerUser(refreshed),
       rememberMe,
       csrfToken,
+      trustedDevice: trusted,
+      loginBonus: daily.bonusXp > 0 ? { xp: daily.bonusXp, streak: daily.streakDays } : null,
       ...(result && 'recovering' in result
         ? { recoveryCodeUsed: true, recoveryCodesLeft: result.remaining }
         : {}),
@@ -805,7 +1178,7 @@ router.post('/2fa/setup', authenticate, async (req: AuthRequest, res) => {
       return res.status(409).json({ error: '2FA je već uključena.', code: 'TOTP_ALREADY_ENABLED' });
     }
 
-    const secret = startEnrollment(user.id);
+    const secret = await startEnrollment(user.id);
     const uri = await totpUri(user.username, secret);
     res.json({ secret, otpauthUri: uri, qrCode: await totpQrDataUrl(uri) });
   } catch (err) {
@@ -826,7 +1199,7 @@ router.post('/2fa/enable', authenticate, async (req: AuthRequest, res) => {
       return res.status(409).json({ error: '2FA je već uključena.', code: 'TOTP_ALREADY_ENABLED' });
     }
 
-    const secret = pendingSecret(user.id);
+    const secret = await pendingSecret(user.id);
     if (!secret) {
       return res.status(400).json({ error: 'Postavka je istekla. Započnite ponovo.', code: 'TOTP_SETUP_EXPIRED' });
     }
@@ -836,6 +1209,14 @@ router.post('/2fa/enable', authenticate, async (req: AuthRequest, res) => {
       return res.status(400).json({ error: 'Kod nije ispravan. Proverite vreme na telefonu.', code: 'TOTP_INVALID' });
     }
 
+    // N-09 — enrollment se troši pre upisa: dva paralelna `enable` zahteva ne
+    // smeju oba da aktiviraju 2FA (drugi bi pregazio recovery kodove prvog).
+    if (!(await consumeEnrollment(user.id, secret))) {
+      return res.status(409).json({
+        error: 'Postavka je promenjena ili istekla. Započnite ponovo.',
+        code: 'TOTP_SETUP_SUPERSEDED',
+      });
+    }
     const { plain, hashes } = await generateRecoveryCodes();
     const updated = await db.users.update(user.id, {
       totpSecret: encryptSecret(secret),
@@ -845,7 +1226,6 @@ router.post('/2fa/enable', authenticate, async (req: AuthRequest, res) => {
       totpLockedUntil: null,
       totpLastUsedStep: check.timeStep ?? null,
     });
-    clearEnrollment(user.id);
 
     // Ostale sesije ne dobijaju „promociju“ — samo one otvorene posle 2FA.
     req.log?.info({ userId: user.id }, 'totp_enabled');
@@ -895,6 +1275,9 @@ router.post('/2fa/disable', authenticate, async (req: AuthRequest, res) => {
       totpLockedUntil: null,
       totpLastUsedStep: null,
     });
+    // F-15 — bez 2FA „trusted“ uređaj ne sme da ostane zapamćen: sledeća prijava
+    // bi preskočila step koji više ne postoji (i ostala bi upisana u bazi).
+    await forgetAllDevices(user.id, res);
     req.log?.warn({ userId: user.id }, 'totp_disabled');
     res.json({ enabled: false, user: updated ? ownerUser(updated) : null });
   } catch (err) {
@@ -925,4 +1308,253 @@ router.post('/2fa/recovery-codes', authenticate, async (req: AuthRequest, res) =
   }
 });
 
+/* ----------------------------------------------------------------
+ * 5.2 — PASSKEY / WEBAUTHN
+ * ---------------------------------------------------------------- */
+
+/** Passkey rute vraćaju 503 ako `webauthn_credentials` nije puštena. */
+function passkeyFailure(req: AuthRequest, res: any, error: unknown) {
+  if (error instanceof AuthPasskeyError) {
+    const status = error.code === 'passkey_storage_missing' ? 503 : 400;
+    return res.status(status).json({ error: error.message, code: error.code.toUpperCase() });
+  }
+  req.log?.error({ err: error }, 'passkey_route_failed');
+  return res.status(500).json({ error: 'Passkey radnja nije uspela. Pokušajte ponovo.' });
+}
+
+/** GET /api/auth/passkeys — lista passkey-a za profil (bez javnog ključa). */
+router.get('/passkeys', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const rows = await listPasskeys(req.user!.id);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      passkeys: rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        createdAt: row.createdAt,
+        lastUsedAt: row.lastUsedAt,
+        transports: row.transports,
+      })),
+      rpId: rpId(),
+    });
+  } catch (error) {
+    passkeyFailure(req, res, error);
+  }
+});
+
+/**
+ * POST /api/auth/passkeys/register/begin — opcije za `navigator.credentials.create`.
+ * Traži prijavu: passkey se dodaje postojećem nalogu (nikad ne pravi novi).
+ */
+router.post('/passkeys/register/begin', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const user = await db.users.findById(req.user!.id);
+    if (!user) return res.status(401).json({ error: 'Nalog nije aktivan.', code: 'SESSION_REVOKED' });
+    if (await passkeyCount(user.id) >= 10) {
+      return res.status(409).json({ error: 'Najviše 10 passkey-a po nalogu.', code: 'PASSKEY_LIMIT' });
+    }
+    const existing = await listPasskeys(user.id).catch(() => []);
+    const { challengeId, challenge } = newChallenge({
+      purpose: 'register',
+      userId: user.id,
+      allowCredentials: [],
+    });
+    res.json({
+      challengeId,
+      username: user.username,
+      options: registrationOptions(user, challenge, existing.map((row) => row.credentialId)),
+    });
+  } catch (error) {
+    passkeyFailure(req, res, error);
+  }
+});
+
+/**
+ * POST /api/auth/passkeys/register/finish — verifikuje attestation i čuva ključ.
+ * Sav rad je u `verifyRegistration`; ovde je samo HTTP + upis.
+ */
+router.post('/passkeys/register/finish', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const { challengeId, credential, name } = (req.body ?? {}) as any;
+    const record = consumeChallenge(String(challengeId ?? ''), 'register');
+    if (!record || record.userId !== req.user!.id) {
+      return res.status(400).json({ error: 'Registracija passkey-a je istekla. Pokušajte ponovo.', code: 'CHALLENGE_EXPIRED' });
+    }
+
+    const credentialId = String(credential?.id ?? credential?.rawId ?? '');
+    if (!credentialId) return res.status(400).json({ error: 'Passkey podaci nedostaju.', code: 'INVALID_CREDENTIAL' });
+
+    const parsed = verifyRegistration(credential, { challenge: record.challenge, credentialId });
+    // Ključ koji već postoji (drugi nalog ili ponovljena registracija) ne sme da se prepiše.
+    if (await findPasskeyByCredentialId(parsed.credentialId)) {
+      return res.status(409).json({ error: 'Ovaj passkey je već registrovan.', code: 'PASSKEY_EXISTS' });
+    }
+
+    const saved = await savePasskey({
+      id: cryptoRandomId(),
+      userId: req.user!.id,
+      credentialId: parsed.credentialId,
+      publicKey: parsed.publicKey,
+      counter: parsed.counter,
+      attachment: parsed.attachment,
+      transports: parsed.transports,
+      name: String(name ?? '').trim().slice(0, 60) || 'Passkey',
+      createdAt: new Date().toISOString(),
+      lastUsedAt: null,
+    });
+    req.log?.info({ userId: req.user!.id, passkeyId: saved.id }, 'passkey_registered');
+    res.status(201).json({
+      passkey: {
+        id: saved.id,
+        name: saved.name,
+        createdAt: saved.createdAt,
+        lastUsedAt: saved.lastUsedAt,
+        transports: saved.transports,
+      },
+    });
+  } catch (error) {
+    passkeyFailure(req, res, error);
+  }
+});
+
+/**
+ * POST /api/auth/passkeys/login/begin — javna ruta (bez sesije).
+ * `discoverable`: bez email-a — autentifikator sam izabere ključ. Ako klijent
+ * pošalje `email`, sužavamo `allowCredentials` na taj nalog.
+ */
+router.post('/passkeys/login/begin', turnstileMiddleware, async (req, res) => {
+  try {
+    const email = String(req.body?.email ?? '').trim().toLowerCase();
+    const allowCredentials: string[] = [];
+
+    if (email) {
+      const user = await db.users.findByEmail(email);
+      if (user) {
+        const credentials = await listPasskeys(user.id).catch(() => []);
+        allowCredentials.push(...credentials.map((row) => row.credentialId));
+      }
+      // Namerno ne odajemo da li email postoji: bez ključa i dalje ide discoverable.
+      if (!allowCredentials.length) allowCredentials.length = 0;
+    }
+
+    const { challengeId, challenge } = newChallenge({ purpose: 'login', allowCredentials });
+    res.json({ challengeId, options: authenticationOptions(challenge, allowCredentials) });
+  } catch (error) {
+    passkeyFailure(req, res, error);
+  }
+});
+
+/**
+ * POST /api/auth/passkeys/login/finish — verifikacija + izdavanje sesije.
+ * Dva režima: (a) puna prijava (bez tiketa), (b) passkey kao DRUGI faktor uz
+ * `mfaTicket` iz `/login` — tada se sesija izdaje tek ako je i tiket važeći.
+ */
+router.post('/passkeys/login/finish', turnstileMiddleware, async (req, res) => {
+  try {
+    const { challengeId, credential, mfaTicket, rememberMe } = (req.body ?? {}) as any;
+    const challenge = consumeChallenge(String(challengeId ?? ''), 'login');
+    if (!challenge) {
+      return res.status(400).json({ error: 'Prijava passkey-om je istekla. Pokušajte ponovo.', code: 'CHALLENGE_EXPIRED' });
+    }
+
+    const credentialId = String(credential?.id ?? credential?.rawId ?? '');
+    const record = await findPasskeyByCredentialId(credentialId);
+    if (!record) return res.status(401).json({ error: 'Passkey nije prepoznat.', code: 'PASSKEY_UNKNOWN' });
+    // `allowCredentials` iz `begin` je suzio izbor — ključ van liste je odbijen.
+    if (challenge.allowCredentials.length && !challenge.allowCredentials.includes(record.credentialId)) {
+      return res.status(401).json({ error: 'Passkey ne pripada ovom nalogu.', code: 'PASSKEY_NOT_ALLOWED' });
+    }
+
+    const assertion = verifyAssertion(credential, record, challenge.challenge);
+    const user = await db.users.findById(record.userId);
+    // 5.5 — stanje pre izdavanja nove sesije (za „nova prijava“ mejl).
+    const knownSessions = user ? await db.sessions.listActiveForUser(user.id).catch(() => []) : [];
+    if (!user) return res.status(401).json({ error: 'Nalog nije aktivan.', code: 'SESSION_REVOKED' });
+
+    const activeBan = await activeBanFor(user);
+    if (activeBan) {
+      return res.status(403).json({
+        error: activeBan.expiresAt
+          ? `Vaš nalog je suspendovan do ${new Date(activeBan.expiresAt).toLocaleString('sr-RS')}.`
+          : 'Vaš nalog je suspendovan. Obratite se podršci.',
+        code: 'BAN_ACTIVE',
+        banExpiresAt: activeBan.expiresAt ?? null,
+        banReason: activeBan.reason ?? null,
+      });
+    }
+
+    // Drugi faktor: passkey sme da zameni TOTP kod SAMO uz važeći tiket prvog faktora.
+    if (mfaTicket) {
+      const ticketUserId = readMfaTicket(mfaTicket);
+      if (!ticketUserId || ticketUserId !== user.id) {
+        return res.status(401).json({ error: 'Prijava je istekla. Unesite lozinku ponovo.', code: 'MFA_TICKET_INVALID' });
+      }
+    }
+
+    await touchPasskey(record.id, assertion.counter);
+    await db.users.update(user.id, { status: 'online', lastSeenAt: new Date().toISOString() });
+    await markSignedIn(user);
+    const { csrfToken } = await establishSession(req as AuthRequest, res, user, { rememberMe: rememberMe === true });
+    await setPresence(user.id, true).catch(() => {});
+    void maybeSendLoginAlert(user, req as AuthRequest, knownSessions);
+    const daily = await recordDailyLogin(user.id);
+    req.log?.info({ userId: user.id, passkeyId: record.id, secondFactor: Boolean(mfaTicket) }, 'passkey_login');
+    res.json({
+      user: { ...ownerUser(user), isOnline: true },
+      csrfToken,
+      method: 'passkey',
+      loginBonus: daily.bonusXp > 0 ? { xp: daily.bonusXp, streak: daily.streakDays } : null,
+      loginStreak: daily.streakDays,
+    });
+  } catch (error) {
+    passkeyFailure(req, res, error);
+  }
+});
+
+/** DELETE /api/auth/passkeys/:id — brisanje passkey-a (samo sopstvenog). */
+router.delete('/passkeys/:id', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const id = String(req.params.id ?? '');
+    const existing = await findPasskeyById(id, req.user!.id);
+    if (!existing) return res.status(404).json({ error: 'Passkey nije pronađen.' });
+
+    const removed = await deletePasskey(id, req.user!.id);
+    req.log?.info({ userId: req.user!.id, passkeyId: id }, 'passkey_removed');
+    res.json({ removed });
+  } catch (error) {
+    passkeyFailure(req, res, error);
+  }
+});
+
 export default router;
+
+/* ----------------------------------------------------------------
+ * F-15 — UPRAVLJANJE TRUSTED UREĐAJIMA (profil → Bezbednost)
+ * ---------------------------------------------------------------- */
+
+/** GET /api/auth/2fa/devices — zapamćeni uređaji (bez hash-eva). */
+router.get('/2fa/devices', authenticate, async (req: AuthRequest, res) => {
+  const devices = await listDevices(req.user!.id);
+  res.json({
+    devices,
+    currentDeviceId: deviceIdFrom(req),
+    ttlDays: Math.round(TRUST_TTL_MS / 86_400_000),
+  });
+});
+
+/** DELETE /api/auth/2fa/devices/:deviceId — zaboravi jedan uređaj. */
+router.delete('/2fa/devices/:deviceId', authenticate, async (req: AuthRequest, res) => {
+  const deviceId = String(req.params.deviceId ?? '');
+  if (!/^[A-Za-z0-9_-]{16,64}$/.test(deviceId)) {
+    return res.status(400).json({ error: 'Neispravan ID uređaja.' });
+  }
+  const removed = await db.trustedDevices.deleteOne(req.user!.id, deviceId).catch(() => false);
+  if (deviceIdFrom(req) === deviceId) clearTrustCookies(res);
+  res.json({ removed });
+});
+
+/** DELETE /api/auth/2fa/devices — „zaboravi sve uređaje“ (bez diranja 2FA). */
+router.delete('/2fa/devices', authenticate, async (req: AuthRequest, res) => {
+  const removed = await forgetAllDevices(req.user!.id, res);
+  res.json({ removed });
+});

@@ -1,0 +1,2 @@
+...(subjectB ? { abTest: { subjectA: subject, subjectB, sentB: abSentB, sentA: sentCount - abSentB } : {}),
+    });

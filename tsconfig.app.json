@@ -20,8 +20,11 @@
     "noFallthroughCasesInSwitch": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      // `contracts/index.ts` uvozi `zod`, koji postoji samo u `server/node_modules`.
+      "zod": ["./server/node_modules/zod"]
     }
   },
-  "include": ["src"]
+  // N10 — `contracts/` je deljeni modul; klijent ga uvozi direktno (`../contracts`).
+  "include": ["src", "contracts"]
 }

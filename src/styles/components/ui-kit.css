@@ -1,0 +1,1887 @@
+/**
+ * SLOJ 3 — UI KIT (Button / Card / Badge / Tabs / Modal / Skeleton / forme)
+ *
+ * Samo tokeni iz `tokens.css` — bez novih hex vrednosti.
+ */
+@layer components-ui-kit {
+  /* ==========================================================================
+     NEXUS GG — component library (bivši css-parts/ui-kit.css)
+   * UI kit primitivi (Button / Card / Badge / Tabs / Modal / Skeleton),
+   * forum liste, bedževi i uloge, mobilna navigacija, editorial sadržaj.
+   *
+   * Pravila (2.8.0):
+   *  - samo tokeni iz `@theme` (surface, primary violet, text-*)
+   *  - elevacija = 1px ivica + `--shadow-sm`; BEZ glow-a i BEZ backdrop-filtera
+   *  - `backdrop-filter` i `--shadow-glow` samo Navbar / Modal / Drawer / Toast
+   *  - primarni CTA i aktivni tab su jedina mesta sa `--shadow-glow`
+   * ==========================================================================
+   */
+
+  /* ==========================================================================
+     BUTTON
+     ========================================================================== */
+  .ui-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: var(--radius-md);
+    font-family: var(--font-family-body);
+    font-weight: 600;
+    letter-spacing: 0;
+    border: 1px solid transparent;
+    cursor: pointer;
+    overflow: hidden;
+    isolation: isolate;
+    transition:
+      background-color var(--dur-base) var(--ease-forge),
+      border-color var(--dur-base) var(--ease-forge),
+      color var(--dur-base) var(--ease-forge),
+      box-shadow var(--dur-base) var(--ease-forge),
+      transform var(--dur-base) var(--ease-forge),
+      filter var(--dur-base) var(--ease-forge);
+    white-space: nowrap;
+    text-decoration: none;
+    user-select: none;
+    min-height: 2.5rem;
+  }
+
+  .ui-btn:active:not(:disabled) {
+    transform: scale(0.985);
+  }
+
+  .ui-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+  }
+
+  /* U-01 — tap target ≥ 40 px (44 px na mobilnom), tekst 14/16 */
+  .ui-btn-sm { padding: 0.5rem 0.75rem; font-size: 0.875rem; min-height: 2.5rem; }
+  .ui-btn-md { padding: 0.5625rem 1rem; font-size: 0.9375rem; }
+  .ui-btn-lg { padding: 0.75rem 1.5rem; font-size: var(--text-body); min-height: 2.875rem; }
+
+  @media (max-width: 640px) {
+    .ui-btn-sm,
+    .ui-btn-md {
+      min-height: 2.75rem;
+    }
+  }
+
+  /*
+   * Primary CTA — U-03: JEDAN akcent po ekranu. Ranije violet→indigo→cyan
+   * gradijent + shine sweep + dvostruki glow; sada puna primarna boja sa
+   * jednim diskretnim sjajem. Cyan ostaje za status (online, live), ne za CTA.
+   */
+  .br-primary {
+    /* Puna površina sa belim tekstom → `primary-surface` (5,7:1 AA) */
+    background-color: var(--color-primary-surface);
+    background-image: none;
+    color: var(--color-on-solid);
+    border-color: var(--color-primary-surface);
+    box-shadow: var(--shadow-glow);
+    transition:
+      background-color var(--dur-base) var(--ease-forge),
+      border-color var(--dur-base) var(--ease-forge),
+      box-shadow var(--dur-base) var(--ease-forge);
+  }
+
+  .br-primary:hover:not(:disabled) {
+    background-color: var(--color-primary-surface-hover);
+    border-color: var(--color-primary-surface-hover);
+  }
+
+  .br-primary:active:not(:disabled) {
+    background-color: var(--color-primary-active);
+    transform: scale(0.985);
+  }
+
+  /* Secondary — mirna površina + 1px ivica (bez glass-a) */
+  .br-secondary {
+    background: var(--color-surface-3);
+    color: var(--color-text-primary);
+    border-color: var(--color-border-default);
+    box-shadow: var(--shadow-sm);
+  }
+  .br-secondary:hover:not(:disabled) {
+    background: var(--color-surface-4);
+    border-color: var(--color-border-strong);
+  }
+
+  /* Ghost */
+  .br-ghost {
+    background: transparent;
+    color: var(--color-text-secondary);
+    border-color: transparent;
+  }
+  .br-ghost:hover:not(:disabled) {
+    background: var(--color-surface-2);
+    color: var(--color-text-primary);
+    border-color: var(--color-border-default);
+  }
+
+  /* Danger — samo semantika (ban, brisanje) */
+  .br-danger {
+    background: var(--color-error-glow);
+    color: var(--color-tertiary-fg);
+    border-color: var(--color-error-glow);
+  }
+  .br-danger:hover:not(:disabled) {
+    background: var(--color-tertiary-muted);
+    border-color: var(--color-tertiary);
+    color: var(--color-tertiary-fg-soft);
+  }
+
+  .ui-btn-spinner {
+    width: 0.9em;
+    height: 0.9em;
+    border-radius: 999px;
+    border: 2px solid rgba(12, 14, 18, 0.25);
+    border-top-color: currentColor;
+    animation: ui-spin 0.7s linear infinite;
+  }
+  .br-secondary .ui-btn-spinner,
+  .br-ghost .ui-btn-spinner,
+  .br-danger .ui-btn-spinner {
+    border-color: rgba(255, 255, 255, 0.2);
+    border-top-color: currentColor;
+  }
+  @keyframes ui-spin { to { transform: rotate(360deg); } }
+
+  /* Icon button */
+  .ui-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: var(--radius-sm);
+    color: var(--color-text-secondary);
+    background: var(--color-surface-2);
+    border: 1px solid var(--color-border-subtle);
+    cursor: pointer;
+    transition: color 0.18s var(--ease-forge), border-color 0.18s var(--ease-forge), background-color 0.18s var(--ease-forge);
+  }
+  .ui-icon-btn:hover {
+    color: var(--color-text-primary);
+    background: var(--color-surface-3);
+    border-color: var(--color-border-strong);
+  }
+
+  @media (max-width: 640px) {
+    .ui-icon-btn {
+      width: 2.75rem;
+      height: 2.75rem;
+    }
+  }
+
+  /* ==========================================================================
+     CARD
+     ========================================================================== */
+  /* Kartice: 1px ivica + `--shadow-sm`, BEZ glow-a i BEZ backdrop-filtera */
+  .ui-card,
+  .ui-card-static,
+  .ui-card-elevated {
+    background: var(--color-surface-1);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-lg);
+    padding: 1.25rem;
+    box-shadow: var(--shadow-sm);
+  }
+  @media (max-width: 639.98px) {
+    .ui-card,
+    .ui-card-static,
+    .ui-card-elevated {
+      padding: 0.875rem;
+    }
+  }
+  .ui-card-static {
+    transition: border-color 0.2s var(--ease-forge);
+  }
+  /* Kompaktna varijanta (stat pločice) — 14 px padding na svim širinama */
+  .ui-card-compact {
+    padding: 0.875rem;
+  }
+  .ui-card-elevated {
+    background-color: var(--color-surface-2);
+    border-color: var(--color-border-default);
+    box-shadow: var(--shadow-md);
+  }
+  .ui-card-interactive {
+    transition:
+      background-color var(--dur-base) var(--ease-forge),
+      border-color var(--dur-base) var(--ease-forge);
+  }
+  .ui-card-interactive:hover {
+    background-color: var(--color-surface-2);
+    border-color: var(--color-border-strong);
+  }
+  .ui-card-interactive:active {
+    transform: scale(0.998);
+  }
+  .ui-card-interactive:focus-within {
+    border-color: var(--color-primary-fg);
+  }
+
+  /* ==========================================================================
+     BADGE
+     ========================================================================== */
+  /*
+   * U-03 / U-10 — badge je sada META podatak (kategorija, LVL, prodavnica):
+   * bez glow-a, sa jednim tonom. Status (online, istekao, hot) nose ikone i
+   * boja rama, ne „šarenilo“ pet različitih svetlećih pilula.
+   */
+  .ui-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.125rem 0.5rem;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-family-body);
+    font-size: var(--text-micro);
+    font-weight: 600;
+    line-height: var(--text-micro-line);
+    letter-spacing: 0.04em;
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+  /*
+   * TONOVI BEDŽEVA — tačno 7 tonova, JEDINO mesto gde se definišu.
+   * Zonska mapa (Neon Editorial):
+   *   primary   violet  — kategorija članka, nivo, recenzija
+   *   secondary cyan    — hardver, PC, „online“, „live“
+   *   warning   amber   — popusti, „ističe danas“, na čekanju (NIKAD siva)
+   *   success   emerald — „riješeno“, odobreno, verified
+   *   error     rose    — konzole, greške, ban
+   *   featured  rose→violet gradijent — predstavljena tema, top 3
+   *   neutral   surface-2 + sivi tekst — meta, datum, pregledi, tagovi
+   */
+  .ui-badge-primary {
+    background: var(--color-primary-muted);
+    color: var(--color-primary-fg-light);
+    border-color: var(--color-primary-glow);
+  }
+
+  .ui-badge-secondary {
+    background: var(--color-secondary-glow);
+    color: var(--color-info-fg);
+    border-color: var(--color-secondary-glow);
+  }
+
+  /* Amber: tekst je `--color-deal-fg` (#fcd34d) na 14% amber veo → 9,9:1 */
+  .ui-badge-warning {
+    background: color-mix(in srgb, var(--color-deal) 14%, transparent);
+    color: var(--color-deal-fg);
+    border-color: color-mix(in srgb, var(--color-deal) 40%, transparent);
+  }
+
+  .ui-badge-success {
+    background: var(--color-success-glow);
+    color: var(--color-success-fg);
+    border-color: var(--color-success-glow);
+  }
+
+  .ui-badge-error {
+    background: var(--color-tertiary-glow);
+    color: var(--color-tertiary-fg);
+    border-color: var(--color-tertiary-glow);
+  }
+
+  /* Featured: suptilni rose → violet (dozvoljen gradijent), bez glow-a */
+  .ui-badge-featured {
+    background: var(--gradient-prestige);
+    color: var(--color-on-solid);
+    border-color: var(--color-tertiary-muted);
+    font-weight: 600;
+  }
+
+  .ui-badge-featured:hover {
+    border-color: var(--color-primary-glow);
+  }
+
+  .ui-badge-neutral {
+    background: var(--color-surface-2);
+    color: var(--color-text-secondary);
+    border-color: var(--color-border-default);
+  }
+
+  /* ==========================================================================
+     TABS
+     ========================================================================== */
+  .ui-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    align-items: center;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .ui-tabs-pills {
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding: 0.25rem;
+    border-radius: var(--radius-md);
+    background: var(--color-surface-1);
+    border: 1px solid var(--color-border-subtle);
+    width: fit-content;
+    max-width: 100%;
+  }
+  .ui-tabs-pills::-webkit-scrollbar { display: none; }
+  .ui-tab {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.4375rem 0.8125rem;
+    border-radius: var(--radius-sm);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+    background: transparent;
+    border: 1px solid transparent;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color 0.18s var(--ease-forge), background-color 0.18s var(--ease-forge), border-color 0.18s var(--ease-forge);
+  }
+  .ui-tab:hover { color: var(--color-primary-hover); background: var(--color-surface-3); }
+  /*
+   * 3.0 — aktivni tab je STANJE, ne druga akcija: teget površina (#1E2350) +
+   * 2px ljubičasta nit. Vidi se po obliku, ne samo po sjaju (bolje za slab vid),
+   * i ne troši jedinu ljubičastu akciju ekrana (CTA).
+   */
+  .ui-tab.is-active {
+    color: var(--color-text-primary);
+    background: var(--color-surface-4);
+    border-color: var(--color-border-strong);
+    box-shadow: inset 0 -2px 0 var(--color-primary);
+  }
+
+  /*
+   * 3.0 — deals filter tab je ISTI jezik kao svaki aktivni tab: teget površina
+   * + 2px amber nit. Puna amber površina je rezervisana za cenu i „-%" pilulu
+   * (inače bi cena izgubila dominaciju u kartici).
+   */
+  .ui-tab.is-active-deal {
+    color: var(--color-text-primary);
+    background: var(--color-surface-4);
+    border-color: var(--color-border-strong);
+    box-shadow: inset 0 -2px 0 var(--color-deal);
+  }
+
+  .ui-tab.is-active-deal:hover {
+    color: var(--color-text-primary);
+    background: var(--color-surface-5);
+    border-color: var(--color-border-strong);
+  }
+
+  /* Brojač na amber tabu je miran tekst (amber površina nije u igri) */
+  .ui-tab.is-active-deal .ui-tab-count {
+    background: var(--color-surface-5);
+    color: var(--color-deal);
+  }
+
+  .ui-tabs-underline {
+    gap: 0;
+    border-bottom: 1px solid var(--color-border-subtle);
+    /* F-30 — na 375 px 4-5 tabova probijalo je širinu ekrana (378 px).
+       Horizontalni skrol unutar kartice umesto bočnog pomeranja cele stranice. */
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    max-width: 100%;
+  }
+  .ui-tabs-underline::-webkit-scrollbar { display: none; }
+  .ui-tabs-underline .ui-tab {
+    flex: 0 0 auto;
+    border-radius: 0;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 0.6875rem 0.875rem;
+    margin-bottom: -1px;
+    color: var(--color-text-secondary);
+  }
+  .ui-tabs-underline .ui-tab:hover {
+    color: var(--color-text-primary);
+    background: transparent;
+  }
+  .ui-tabs-underline .ui-tab.is-active {
+    color: var(--color-primary-fg-light);
+    background: transparent;
+    border-bottom-color: var(--color-primary);
+    box-shadow: none;
+  }
+  .ui-tabs-underline .ui-tab {
+    transition: color 0.2s var(--ease-forge), border-color 0.2s var(--ease-forge), text-shadow 0.2s var(--ease-forge);
+  }
+  .ui-tab-count {
+    font-family: var(--font-family-mono);
+    font-size: 0.75rem;
+    font-weight: 500;
+    padding: 0 0.375rem;
+    border-radius: var(--radius-sm);
+    background: var(--color-surface-3);
+    color: var(--color-text-tertiary);
+    font-variant-numeric: tabular-nums;
+  }
+  .ui-tab.is-active .ui-tab-count {
+    background: var(--color-surface-4);
+    color: var(--color-text-secondary);
+  }
+
+  /* ==========================================================================
+     MODAL
+     ========================================================================== */
+  .ui-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    background: var(--color-overlay);
+    animation: ui-fade-in 0.15s ease-out;
+  }
+  .ui-modal-panel {
+    width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+    padding: 1.5rem;
+    border-radius: var(--radius-xl);
+    background: var(--glass-bg-strong);
+    border: 1px solid var(--color-border-default);
+    box-shadow: var(--shadow-lg);
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    backdrop-filter: blur(var(--glass-blur));
+    animation: ui-modal-in 0.18s var(--ease-forge);
+  }
+  @media (max-width: 640px) {
+    .ui-modal-backdrop { padding: 0; align-items: flex-end; }
+    .ui-modal-panel {
+      border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+      max-height: 92vh;
+      padding-bottom: calc(1.5rem + env(safe-area-inset-bottom));
+    }
+  }
+  @keyframes ui-fade-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes ui-modal-in {
+    from { opacity: 0; transform: translateY(10px) scale(0.99); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  /* ==========================================================================
+     SKELETON / STATES / FORMS
+     ========================================================================== */
+  .ui-skeleton {
+    border-radius: var(--radius-sm);
+    background: linear-gradient(90deg, var(--color-surface-2) 0%, var(--color-surface-3) 50%, var(--color-surface-2) 100%);
+    background-size: 200% 100%;
+    animation: ui-shimmer 1.6s ease-in-out infinite;
+  }
+  @keyframes ui-shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  .ui-state-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    text-align: center;
+    padding: 3rem 1.5rem;
+    border-radius: var(--radius-lg);
+    background: var(--color-surface-1);
+    border: 1px solid var(--color-border-subtle);
+  }
+  .ui-state-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 3rem;
+    height: 3rem;
+    border-radius: var(--radius-md);
+    background: var(--color-primary-muted);
+    border: 1px solid var(--color-border-gold);
+    color: var(--color-primary-fg);
+  }
+  .ui-state-icon-error {
+    background: var(--color-error-glow);
+    border-color: var(--color-error-glow);
+    color: var(--color-tertiary-fg);
+  }
+
+  /* Polja — jedinstven "forge" izgled kroz celu aplikaciju */
+  .ui-field {
+    width: 100%;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-input-border);
+    background: var(--color-input-bg);
+    color: var(--color-text-primary);
+    padding: 0.625rem 0.8125rem;
+    font-size: 0.9375rem;
+    line-height: 1.5;
+    min-height: 2.625rem;
+    transition: border-color 0.15s var(--ease-forge), background-color 0.15s var(--ease-forge);
+  }
+  .ui-field::placeholder { color: var(--color-text-muted); }
+  .ui-field:hover { border-color: var(--color-border-strong); }
+  .ui-field:focus {
+    outline: none;
+    border-color: var(--color-primary-fg);
+  }
+  .ui-field:disabled { opacity: 0.55; cursor: not-allowed; }
+  textarea.ui-field { resize: vertical; }
+  /* Kompaktno polje — kad stoji u redu sa dugmetom (profil: URL avatara) */
+  .ui-field-sm {
+    min-height: 2.5rem;
+    padding: 0.4375rem 0.6875rem;
+    font-size: 0.875rem;
+  }
+
+  /* Checkbox — amber akcent */
+  input[type="checkbox"] { accent-color: var(--color-primary); }
+
+  /* ==========================================================================
+     ARTICLE / RICH TEXT (osnovni sloj — dopunjen u index.css)
+     ========================================================================== */
+  .article-rich-content h2,
+  .article-rich-content h3 {
+    font-family: var(--font-family-display);
+    font-weight: 600;
+    color: var(--color-text-primary);
+    margin: 1.5rem 0 0.75rem;
+  }
+  .article-rich-content h2 { font-size: 1.5rem; letter-spacing: -0.02em; }
+  .article-rich-content h3 { font-size: 1.1875rem; }
+  .article-rich-content p { margin-bottom: 1rem; }
+  .article-rich-content ul,
+  .article-rich-content ol {
+    margin: 0 0 1rem 1.25rem;
+    list-style: disc;
+  }
+  .article-rich-content ol { list-style: decimal; }
+  .article-rich-content a {
+    color: var(--color-primary-fg);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    text-decoration-thickness: 1px;
+  }
+  .article-rich-content blockquote {
+    margin: 1rem 0;
+    padding-left: 1rem;
+    border-left: 2px solid var(--color-primary);
+    color: var(--color-text-secondary);
+  }
+  .article-rich-content img {
+    max-width: 100%;
+    height: auto;
+    border-radius: var(--radius-md);
+  }
+  .article-rich-content pre {
+    overflow-x: auto;
+    padding: 1rem;
+    border-radius: var(--radius-md);
+    background: var(--color-surface-0);
+    border: 1px solid var(--color-border-subtle);
+    font-family: var(--font-family-mono);
+    font-size: 0.8125rem;
+  }
+  .article-rich-content code {
+    font-family: var(--font-family-mono);
+  }
+
+  /* ==========================================================================
+     FORUM — red teme, glasovi, meta
+     ========================================================================== */
+  .forum-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.875rem 0.5rem;
+    border-radius: 0;
+    border: 0;
+    border-bottom: 1px solid var(--color-border-subtle);
+    background: transparent;
+    transition: background-color 0.18s var(--ease-forge);
+  }
+  .forum-row:hover {
+    background: var(--color-surface-3);
+  }
+  .forum-row:focus-within {
+    border-color: var(--color-primary-fg);
+  }
+  .forum-row.is-pinned {
+    background: var(--color-primary-subtle);
+    border-color: var(--color-border-subtle);
+  }
+  .forum-row.is-pinned:hover {
+    background: var(--color-primary-muted);
+  }
+
+  .forum-row-votes {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+    min-width: 2rem;
+    padding: 0.125rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid transparent;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+  .forum-row:hover .forum-row-votes {
+    border-color: var(--color-border-subtle);
+    background: var(--color-surface-2);
+  }
+
+  .forum-vote-btn {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 24px;
+    border-radius: 4px;
+    color: var(--color-text-tertiary);
+    transition: color 0.15s ease, background 0.15s ease;
+    cursor: pointer;
+  }
+  .forum-vote-btn:hover {
+    color: var(--color-text-primary);
+    background: var(--color-surface-3);
+  }
+  .forum-vote-btn.is-up { color: var(--color-primary-fg); background: var(--color-primary-muted); }
+  .forum-vote-btn.is-down { color: var(--color-tertiary-fg); background: var(--color-error-glow); }
+
+  /* ==========================================================================
+     U-01 — tipografija: `--text-*` skala (13/16 px) umesto 11–12 px
+     ========================================================================== */
+  .forum-row-stats {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.25rem;
+    font-size: var(--text-meta);
+    line-height: var(--text-meta-line);
+    color: var(--color-text-secondary);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .forum-row-stats .cat {
+    font-size: var(--text-micro);
+    line-height: var(--text-micro-line);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-text-tertiary);
+  }
+
+  /* ==========================================================================
+     BEDŽEVI — retkost i uloge. Retkost = boja ivice, bez glow-a.
+     `--badge-glow` postavlja BadgeChip i koristi se samo kao nijansa.
+     ========================================================================== */
+  @keyframes badge-sheen {
+    0% { background-position: -150% 50%; }
+    60%, 100% { background-position: 250% 50%; }
+  }
+  .badge-chip-animated {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+  }
+  .badge-chip-animated::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: linear-gradient(
+      110deg,
+      transparent 35%,
+      color-mix(in srgb, var(--badge-glow, var(--color-primary-glow-soft)) 22%, transparent) 50%,
+      transparent 65%
+    );
+    background-size: 220% 100%;
+    background-position: -150% 50%;
+    animation: badge-sheen 5s ease-in-out infinite;
+    pointer-events: none;
+  }
+
+  /* Uloge — statičan prsten boje + tihi zlatni debeli sjaj (bez rotacije) */
+  .role-emblem {
+    position: relative;
+  }
+  .role-emblem-icon {
+    border-radius: 999px;
+  }
+  .role-frame-admin,
+  .role-frame-dev,
+  .role-frame-mod {
+    position: relative;
+    border-color: transparent !important;
+  }
+  .role-frame-admin::before,
+  .role-frame-dev::before,
+  .role-frame-mod::before {
+    content: '';
+    position: absolute;
+    inset: -3px;
+    z-index: -1;
+    border-radius: 999px;
+    border: 1px solid var(--role-glow, var(--color-primary-glow-soft));
+    opacity: 0.85;
+    transition: opacity var(--dur-base) var(--ease-forge);
+  }
+  .role-emblem:hover .role-frame-admin::before,
+  .role-emblem:hover .role-frame-dev::before,
+  .role-emblem:hover .role-frame-mod::before {
+    opacity: 1;
+  }
+  .role-frame-admin::after,
+  .role-frame-dev::after,
+  .role-frame-mod::after {
+    content: none;
+  }
+  .role-frame-admin::after,
+  .role-frame-dev::after,
+  .role-frame-mod::after {
+    content: none;
+    display: none;
+  }
+  .role-frame-admin { isolation: isolate; }
+  .role-frame-dev { isolation: isolate; }
+  .role-frame-mod { isolation: isolate; }
+
+  /* ==========================================================================
+     MOBILNA NAVIGACIJA
+     ========================================================================== */
+  @media (max-width: 1023.98px) {
+    .has-mobile-tabbar {
+      padding-bottom: calc(4rem + env(safe-area-inset-bottom));
+    }
+  }
+  .mobile-tabbar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    /* Iznad svih section-animacija (cyberFadeUp pravi stacking kontekst na
+       headerima) — traka i FAB moraju biti klikabilni na svakoj stranici. */
+    z-index: 60;
+    display: grid;
+    /* U-05 — 5 stavki: 2 · NOVA · 2, bez „plutajućeg“ FAB-a */
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    padding-bottom: env(safe-area-inset-bottom);
+    background: var(--color-surface-1);
+    border-top: 1px solid var(--color-border-subtle);
+    box-shadow: 0 -1px 0 var(--color-border-subtle);
+  }
+  .mobile-tabbar a,
+  .mobile-tabbar button {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.2rem;
+    min-width: 0;
+    min-height: 56px;
+    padding-inline: 0.25rem;
+    font-size: var(--text-micro);
+    font-weight: 500;
+    color: var(--color-text-tertiary);
+    text-decoration: none;
+    background: none;
+    border: none;
+    cursor: pointer;
+    transition: color 0.15s ease;
+  }
+
+  /* U-05 — imena stavki ne prelamaju traku (5 kolona na 360 px);
+     grid kolone su `minmax(0,1fr)`, pa tekst mora da se skrati, ne da gura. */
+  .mobile-tabbar a > span,
+  .mobile-tabbar button > span:not(.mobile-tab-create-icon) {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .mobile-tabbar a.is-active,
+  .mobile-tabbar button.is-active {
+    color: var(--color-primary-fg);
+  }
+  /* aktivni tab: primary ikona + 2px indikator */
+  .mobile-tabbar a.is-active > svg,
+  .mobile-tabbar button.is-active > svg {
+    color: var(--color-primary-fg);
+  }
+  .mobile-tabbar a.is-active::before,
+  .mobile-tabbar button.is-active::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 24px;
+    height: 2px;
+    border-radius: 0 0 2px 2px;
+    background: var(--color-primary);
+  }
+
+  /* U-05 — centralno dugme „Nova tema“ je deo trake (ista visina, isti target),
+     a izgleda kao primarna akcija: jedini puni krug u navigaciji. */
+  .mobile-tab-create {
+    overflow: visible;
+  }
+
+  .mobile-tab-create-icon {
+    display: grid;
+    place-items: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    margin-top: -1rem;
+    border-radius: 999px;
+    background: var(--color-primary);
+    color: var(--color-on-solid);
+    border: 2px solid var(--color-surface-0);
+    box-shadow: var(--shadow-glow);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .mobile-tab-create:active .mobile-tab-create-icon {
+      transform: scale(0.94);
+    }
+  }
+  /* --- Font display util --- */
+  .font-display { font-family: var(--font-family-display); }
+
+  @media (min-width: 1024px) {
+    .mobile-tabbar { display: none; }
+  }
+
+  /* ==========================================================================
+     POLL WIDGET
+     ========================================================================== */
+  .poll-widget {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .poll-option {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    width: 100%;
+    min-height: 2.75rem;
+    padding: 0.625rem 0.875rem;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border-default);
+    background: var(--color-surface-2);
+    color: var(--color-text-primary);
+    font-size: 0.875rem;
+    text-align: left;
+    cursor: pointer;
+    overflow: hidden;
+    transition: border-color 0.16s var(--ease-forge), background-color 0.16s var(--ease-forge);
+  }
+  .poll-option:hover:not(:disabled) {
+    border-color: var(--color-border-strong);
+    background: var(--color-surface-3);
+  }
+  .poll-option:disabled { cursor: default; }
+  .poll-option.is-mine {
+    border-color: var(--color-primary-glow-soft);
+    background: var(--color-primary-subtle);
+  }
+  .poll-option-fill {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    background: var(--color-primary-muted);
+    border-right: 1px solid var(--color-primary-glow-soft);
+    transition: width 0.45s var(--ease-forge);
+    pointer-events: none;
+  }
+  .poll-option-content {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+  .poll-option-percent {
+    position: relative;
+    font-family: var(--font-family-mono);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .poll-option.is-mine .poll-option-percent {
+    color: var(--color-primary-hover);
+  }
+
+  /* ==========================================================================
+     PROFILE
+     ========================================================================== */
+  .profile-hero {
+    position: relative;
+    /* U-11 — avatar je izvučen iznad cove-a, pa se hero ne sme seći */
+    overflow: hidden;
+    border-radius: var(--radius-xl);
+    background: var(--color-surface-1);
+    border: 1px solid var(--color-border-subtle);
+    box-shadow: var(--shadow-sm);
+  }
+
+  /* Cover: mirna violet podloga + fina mreža (bez glow slojeva) */
+  .profile-cover {
+    position: relative;
+    height: 6.5rem;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    background-color: var(--color-surface-2);
+    background-image:
+      radial-gradient(ellipse 70% 140% at 10% 130%, var(--cover-accent, var(--color-primary-subtle)), transparent 62%),
+      linear-gradient(var(--color-border-subtle) 1px, transparent 1px),
+      linear-gradient(90deg, var(--color-border-subtle) 1px, transparent 1px);
+    background-size: auto, 36px 36px, 36px 36px;
+    border-bottom: 1px solid var(--color-border-subtle);
+    overflow: hidden;
+  }
+
+  /*
+   * #4 — preset cover-a: samo boja akcenta menja zonu (`--cover-accent`).
+   * Struktura (mreža, fade) ostaje ista za sve presete — razmena je čisto
+   * zamena boje, ne novi layout.
+   */
+  .profile-cover[data-cover='emerald'] { --cover-accent: rgba(52, 211, 153, 0.14); }
+  .profile-cover[data-cover='amber']   { --cover-accent: rgba(245, 196, 81, 0.13); }
+  .profile-cover[data-cover='rose']    { --cover-accent: rgba(251, 113, 133, 0.13); }
+  .profile-cover[data-cover='cyan']    { --cover-accent: rgba(56, 189, 248, 0.14); }
+  .profile-cover[data-cover='violet'],
+  .profile-cover:not([data-cover])     { --cover-accent: var(--color-primary-subtle); }
+
+  .profile-cover::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, transparent 35%, var(--color-surface-1) 100%);
+    pointer-events: none;
+  }
+
+  @media (min-width: 640px) {
+    .profile-cover { height: 7.5rem; }
+  }
+
+  .profile-avatar-frame {
+    position: relative;
+    width: 5.25rem;
+    height: 5.25rem;
+    border-radius: 999px;
+    padding: 3px;
+    background: linear-gradient(160deg, var(--color-primary-fg), var(--color-primary) 60%, var(--color-surface-3));
+    box-shadow: var(--shadow-sm);
+    transition: transform 0.25s var(--ease-out-soft);
+  }
+
+  .profile-avatar-frame:hover {
+    transform: translateY(-2px);
+  }
+
+  .profile-avatar-inner {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+    border-radius: 999px;
+    overflow: hidden;
+    background: var(--color-surface-0);
+  }
+
+  /* Gaming kartica: avatar je 96 px na svim širinama (prsten = nivo) */
+  @media (min-width: 640px) {
+    .profile-avatar-frame { width: 6rem; height: 6rem; }
+  }
+
+  .profile-status-dot {
+    position: absolute;
+    bottom: 2px;
+    right: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    background: var(--color-success);
+    border: 3px solid var(--color-surface-1);
+  }
+
+  /* Stat strip */
+  /*
+   * U-11 — statistika NIJE 2 reda kartica. To je jedan red metrika razdvojen
+   * tankim linijama, kao na „gaming kartici“: broj (mono, 22 px) iznad labele.
+   */
+  .profile-stat-strip {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0;
+    border-top: 1px solid var(--color-border-subtle);
+  }
+
+  @media (min-width: 768px) {
+    .profile-stat-strip {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+
+  .profile-stat-cell {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.875rem 1rem 0.25rem;
+    border-radius: 0;
+    background: none;
+    border: 0;
+    border-left: 1px solid var(--color-border-subtle);
+  }
+
+  .profile-stat-cell:first-child {
+    border-left: 0;
+    padding-left: 0;
+  }
+
+  @media (max-width: 767.98px) {
+    .profile-stat-cell:nth-child(3) {
+      border-left: 0;
+      padding-left: 0;
+    }
+  }
+
+  .profile-stat-cell-icon {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+    border-radius: var(--radius-sm);
+    color: var(--color-text-tertiary);
+  }
+
+  .profile-stat-cell-value {
+    font-family: var(--font-family-mono);
+    font-size: var(--text-number);
+    font-weight: 600;
+    color: var(--color-text-primary);
+    line-height: var(--text-number-line);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+  }
+
+  .profile-stat-cell-label {
+    font-size: var(--text-label);
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-text-tertiary);
+  }
+
+  /* U-11 — nivо u zaglavlju: LVL broj + XP traka ODMAH uz avatar,
+   * da se gamifikacija vidi pre skrolovanja. */
+  .profile-level-strip {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.875rem;
+    max-width: 32rem;
+  }
+
+  .profile-level-badge {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.35rem;
+    padding: 0.15rem 0.55rem;
+    border-radius: var(--radius-sm);
+    background: var(--color-primary-muted);
+    border: 1px solid var(--color-primary-glow);
+    font-family: var(--font-family-mono);
+    font-size: 0.9375rem;
+    font-weight: 700;
+    color: var(--color-text-primary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .profile-level-badge small {
+    font-size: var(--text-micro);
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    color: var(--color-primary-fg);
+  }
+
+  .profile-level-track {
+    flex: 1 1 10rem;
+    min-width: 8rem;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--color-surface-3);
+    overflow: hidden;
+  }
+
+  .profile-level-fill {
+    height: 100%;
+    border-radius: inherit;
+    background: var(--color-primary);
+  }
+
+  .profile-level-note {
+    font-family: var(--font-family-mono);
+    font-size: var(--text-label);
+    color: var(--color-text-tertiary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Medalje (bedževi) u zaglavlju — ikone, ne red nakrcanih pilula */
+  .profile-medal-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+  }
+
+  .profile-medal {
+    display: inline-grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 999px;
+    background: var(--color-surface-2);
+    border: 1px solid var(--color-border-default);
+    color: var(--color-primary-fg);
+  }
+
+  /* Platforme */
+  .profile-platform-tile {
+    position: relative;
+    padding: 0.875rem;
+    border-radius: var(--radius-md);
+    background: var(--color-surface-1);
+    border: 1px solid var(--color-border-subtle);
+    transition:
+      border-color var(--dur-base) var(--ease-forge),
+      background-color var(--dur-base) var(--ease-forge);
+    overflow: hidden;
+  }
+
+  .profile-platform-tile::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 14%;
+    bottom: 14%;
+    width: 2px;
+    border-radius: 0 2px 2px 0;
+    background: var(--tile-accent, var(--color-primary));
+    opacity: 0.6;
+  }
+
+  .profile-platform-tile:hover {
+    background-color: var(--color-surface-2);
+    border-color: var(--color-border-strong);
+  }
+
+  .profile-platform-tile.is-connected {
+    border-color: var(--color-success-glow);
+  }
+
+  .profile-platform-tile.is-connected:hover {
+    border-color: var(--color-success);
+  }
+
+  /* Nepovezan nalog: "Poveži" link oživi na hover kartice */
+  .account-connect-link {
+    transition: color var(--dur-fast) var(--ease-forge);
+  }
+  .profile-platform-tile:hover .account-connect-link {
+    color: var(--color-primary-hover);
+  }
+
+  /* Otkačivanje je mirna akcija (unlink, ne trash) — hover samo blago pojača */
+  .account-disconnect-btn:hover {
+    color: var(--color-text-secondary);
+  }
+
+  /* Connect dugme je full-width na dnu tile-a — ravne kartice u gridu */
+  .account-connect-btn {
+    justify-content: center;
+  }
+
+  /* Meta red u hero kartici: prostraniji gap + vidljive ikone */
+  .profile-hero .meta-row {
+    column-gap: 0.5rem;
+  }
+
+  .profile-hero .meta-row svg {
+    color: var(--color-text-tertiary);
+  }
+
+  /* Bedž retkosti: blago posvetljenje na hover (kad je interaktivan) */
+  .profile-badge-pill:hover {
+    background: var(--color-surface-2);
+    border-color: var(--color-border-strong);
+  }
+
+  .profile-platform-icon {
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    flex-shrink: 0;
+    border-radius: var(--radius-sm);
+    background: var(--color-surface-3);
+    border: 1px solid var(--color-border-subtle);
+    font-family: var(--font-family-display);
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: var(--color-text-secondary);
+    transition: color var(--dur-base) var(--ease-forge), border-color var(--dur-base) var(--ease-forge);
+  }
+
+  .profile-platform-tile:hover .profile-platform-icon {
+    color: var(--color-text-primary);
+    border-color: var(--color-border-strong);
+  }
+
+  .profile-platform-tile.is-connected .profile-platform-icon {
+    color: var(--color-success-fg);
+    border-color: var(--color-success-glow);
+  }
+
+  /* Bedževi */
+  .profile-badge-pill {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4375rem 0.75rem;
+    border-radius: var(--radius-sm);
+    background: var(--color-surface-2);
+    border: 1px solid var(--color-border-subtle);
+    font-size: var(--text-micro);
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    color: var(--color-text-secondary);
+    transition: border-color 0.18s var(--ease-forge), background 0.18s var(--ease-forge);
+  }
+
+  .profile-badge-pill:hover {
+    border-color: var(--color-border-strong);
+  }
+
+  .profile-badge-pill.is-unlocked {
+    background: var(--color-primary-muted);
+    border-color: var(--color-primary-glow);
+    color: var(--color-text-primary);
+  }
+
+  .profile-badge-pill.is-locked {
+    opacity: 0.55;
+  }
+
+  /* Kvestovi */
+  .profile-quest-card {
+    padding: 0.875rem 1rem;
+    border-radius: var(--radius-md);
+    background: var(--color-surface-1);
+    border: 1px solid var(--color-border-subtle);
+    transition: border-color 0.18s var(--ease-forge), background 0.18s var(--ease-forge);
+  }
+
+  .profile-quest-card:hover {
+    background: var(--color-surface-2);
+    border-color: var(--color-border-strong);
+  }
+
+  .profile-quest-card.is-done {
+    border-color: var(--color-success-glow);
+    background: var(--color-success-glow);
+  }
+
+  .profile-quest-seal {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.125rem 0.5rem;
+    border-radius: 999px;
+    background: var(--color-success-glow);
+    border: 1px solid var(--color-success-glow);
+    color: var(--color-success-fg);
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+
+  /* XP progres — puna primarna boja, bez animiranog gradijenta */
+  .profile-xp-track {
+    height: 8px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: var(--color-surface-3);
+  }
+
+  .profile-xp-fill {
+    position: relative;
+    height: 100%;
+    border-radius: 999px;
+    background: var(--color-primary);
+    overflow: hidden;
+    transition: width 0.5s var(--ease-forge);
+  }
+
+  .profile-banner-wrap { border: 1px solid var(--color-border-default); }
+  .bg-radial-glow { background: none; }
+
+  /* ==========================================================================
+     VERIFIKACIONA ZNAČKA („štiklica“ pored imena)
+     ==========================================================================
+     Cyan = secondary akcent sistema. Blagi pulsing glow privlači pogled bez
+     odvlačenja pažnje od imena; `prefers-reduced-motion` ga isključuje.
+     ========================================================================== */
+  .verified-badge {
+    line-height: 0;
+    animation: verifiedIn 320ms var(--ease-out-soft) both;
+  }
+
+  /*
+   * Outline stil: samo cyan obris + štiklica, bez pune popune.
+   * Ranije je značka bila pun cyan pečat sa pulsing glow-om — previše je
+   * odvlačila pažnju od imena. Sada je suptilna: vidi se, ali ne dominira.
+   */
+  .verified-badge > svg.verified-badge-icon {
+    fill: none;
+    color: var(--color-secondary-glow-strong);
+    filter: none;
+    animation: none;
+    transition: color 160ms var(--ease-forge);
+  }
+
+  .verified-badge:hover > svg.verified-badge-icon {
+    color: var(--color-info-fg);
+  }
+
+  .verified-badge--labeled {
+    line-height: 1.2;
+  }
+
+  @keyframes verifiedIn {
+    from { opacity: 0; transform: scale(0.6); }
+    to { opacity: 1; transform: scale(1); }
+  }
+
+  @keyframes verifiedGlow {
+    0%, 100% { opacity: 0.85; }
+    50% { opacity: 1; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .verified-badge,
+    .verified-badge > svg.verified-badge-icon {
+      animation: none;
+    }
+  }
+
+  /* ==========================================================================
+     GLASANJE (tema i odgovori)
+     ========================================================================== */
+  .vote-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.125rem;
+    padding: 0.25rem;
+    border-radius: 999px;
+    background: var(--color-surface-1);
+    border: 1px solid var(--color-border-subtle);
+    transition: border-color var(--dur-base) var(--ease-forge);
+  }
+
+  .vote-box:hover {
+    border-color: var(--color-border-strong);
+  }
+
+  .vote-btn {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 999px;
+    color: var(--color-text-tertiary);
+    transition: background 0.15s ease, color 0.15s ease, transform 0.15s var(--ease-out-soft), box-shadow 0.2s ease;
+    cursor: pointer;
+  }
+
+  /* Klik: mali bounce (samo transform) */
+  @keyframes voteBounce {
+    0% { transform: scale(1) translateY(0); }
+    35% { transform: scale(1.22) translateY(-2px); }
+    70% { transform: scale(0.94) translateY(0); }
+    100% { transform: scale(1) translateY(0); }
+  }
+
+  .vote-btn:active {
+    background: var(--color-surface-3);
+  }
+
+  .vote-btn:hover {
+    background: var(--color-surface-2);
+    color: var(--color-text-primary);
+  }
+
+  .vote-btn.is-up:hover {
+    background: var(--color-primary-muted);
+    color: var(--color-primary-fg);
+  }
+
+  .vote-btn.is-down:hover {
+    background: var(--color-error-glow);
+    color: var(--color-tertiary-fg);
+  }
+
+  .vote-btn.is-up {
+    color: var(--color-primary-fg);
+    background: var(--color-primary-muted);
+  }
+
+  .vote-btn.is-down {
+    color: var(--color-tertiary-fg);
+    background: var(--color-error-glow);
+  }
+
+  .vote-count {
+    font-family: var(--font-family-mono);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    padding: 0.125rem 0;
+    transition: color var(--dur-base) var(--ease-forge), text-shadow var(--dur-base) var(--ease-forge);
+  }
+
+  .vote-box:hover .vote-count {
+    color: var(--color-text-primary);
+  }
+
+  /* Shimmer helper (legacy) */
+  .shimmer {
+    background: linear-gradient(90deg, var(--color-surface-2) 0%, var(--color-surface-3) 50%, var(--color-surface-2) 100%);
+    background-size: 200% 100%;
+    animation: shimmer 1.8s linear infinite;
+  }
+  @keyframes shimmer {
+    0% { background-position: 100% 0; }
+    100% { background-position: -100% 0; }
+  }
+
+  @keyframes xpGradient {
+    from { background-position: 0% 50%; }
+    to { background-position: 100% 50%; }
+  }
+
+  @keyframes xpShimmer {
+    0% { transform: translateX(-100%); }
+    55%, 100% { transform: translateX(120%); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .profile-xp-fill,
+    .profile-xp-fill::after,
+    .poll-option-fill,
+    .shimmer,
+    .vote-btn:active {
+      animation: none !important;
+      transition: none !important;
+    }
+  }
+
+  /* ==========================================================================
+     NAPOMENA: tonovi bedževa (.ui-badge-*) su konsolidovani na jednom mestu
+     (sekcija BADGE, ~linija 249). Ovde se ne dupliraju.
+     ========================================================================== */
+
+  /* ==========================================================================
+     POKRIVANJA GDE SU KOMPONENTE KORISTILE STARU AMBER PALETU INLINE
+     (samo boje — nikakav tekst, prop ili layout)
+     ========================================================================== */
+
+  /* „U fokusu" eyebrow — jedan akcent (violet) */
+  section[aria-labelledby="featured-title"] .eyebrow {
+    color: var(--color-primary-fg);
+  }
+
+  /* Naslov hero kartice na hover — violet */
+  #featured-title {
+    transition: color 220ms ease;
+  }
+
+  a:hover > #featured-title,
+  .group:hover #featured-title {
+    color: var(--color-primary-fg-light);
+  }
+
+  /* Karma (+N) na karticama diskusija — mirna sekundarna boja */
+  .text-\[\#7cc49a\] {
+    color: var(--color-text-secondary) !important;
+  }
+
+  /* Pogreške / opasne akcije u textu — rose */
+  .text-\[\#d98b8b\] {
+    color: var(--color-tertiary-fg) !important;
+  }
+
+  .text-\[\#e4a3a3\] {
+    color: var(--color-tertiary-fg-soft) !important;
+  }
+
+  /* Scorecard ocena (big number) — puna primarna, bez glow-a */
+  .bg-gradient-to-br.from-\[var\(--color-primary\)\].to-purple-600 {
+    background-image: none !important;
+    background-color: var(--color-primary);
+  }
+
+  /* ==========================================================================
+     NAVBAR — logo „N" mark + „GG" bedž
+     Mark koristi `--gradient-brand` (3.0: violet → royal navy), bez glow-a —
+     gradijent je dozvoljen samo na logu, auth panelu, featured bedžu i hero
+     fade-u; sjaj ostaje isključivo za primarni CTA.
+     ========================================================================== */
+  nav.sticky a[aria-label^="NEXUS"] .nexus-logo-mark {
+    background-image: var(--gradient-brand);
+    box-shadow: none;
+    transition: filter 220ms ease;
+  }
+
+  nav.sticky a[aria-label^="NEXUS"]:hover .nexus-logo-mark {
+    filter: brightness(1.12);
+  }
+
+  /* „GG" bedž uz logo: miran status (cyan = samo status) */
+  nav.sticky a[aria-label^="NEXUS"] .ui-badge-secondary {
+    color: var(--color-info-fg);
+    border-color: var(--color-secondary-glow);
+    background: var(--color-secondary-glow);
+  }
+
+  /* „NEXUS" reč na hover — blago violet */
+  nav.sticky a[aria-label^="NEXUS"]:hover .font-display {
+    color: var(--color-primary-fg-light);
+  }
+
+  /* „Pročitaj“ linkovi na karticama vesti — violet, bez text-shadow */
+  a.group .text-\[var\(--color-primary-fg\)\] {
+    color: var(--color-primary-fg) !important;
+    transition: color 180ms ease;
+  }
+
+  a.group .text-\[var\(--color-primary-fg\)\]:hover {
+    color: var(--color-primary-fg-light) !important;
+  }
+
+  /* ==========================================================================
+     RANG LISTA — pozicija je mono broj, bez glow-a
+     ========================================================================== */
+  .rank-pos {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.75rem;
+    height: 1.75rem;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-family-mono);
+    font-size: var(--text-meta);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-text-secondary);
+  }
+
+  .rank-pos.is-top {
+    background: var(--color-surface-4);
+    color: var(--color-primary-fg);
+  }
+
+
+  /* ==========================================================================
+     PROFIL — „gaming kartica": nivo-prsten je statičan, bez rotacije i glow-a
+     ========================================================================== */
+  .profile-avatar-frame::before {
+    content: none;
+  }
+
+  .profile-avatar-frame::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 999px;
+    box-shadow: inset 0 0 0 2px var(--color-primary-glow);
+    pointer-events: none;
+  }
+
+  @keyframes avatarRingSpin {
+    to { transform: rotate(360deg); }
+  }
+
+  /* Cover banner: mirna violet podloga (definisan u theme.css) */
+
+  /* XP bar: puna primarna boja, bez gradijenta i sjaja */
+  .profile-xp-track {
+    height: 8px;
+    background: var(--color-surface-3);
+    border: 0;
+    box-shadow: none;
+  }
+
+  .profile-xp-fill {
+    background: var(--color-primary) !important;
+    background-image: none !important;
+    box-shadow: none !important;
+  }
+
+  /* Tamna „rupa“ iza handle-a nije potrebna — vrh trake nosi neon liniju */
+  .profile-xp-fill::before {
+    content: none;
+  }
+
+  /* Profil hero: ista kartica kao svaka druga (1px ivica + --shadow-sm) */
+  .profile-hero {
+    border-radius: var(--radius-lg);
+    background: var(--color-surface-1);
+    border: 1px solid var(--color-border-subtle);
+    box-shadow: var(--shadow-sm);
+  }
+
+  /* ==========================================================================
+     SETTINGS MODAL — uređivanje profila (avatar, naslovnica, bio)
+     Dve kolone: levo avatar + boja, desno biografija. Jedna kolona < 900px.
+     ========================================================================== */
+  .settings-form-grid {
+    display: grid;
+    gap: 1rem;
+    align-items: start;
+  }
+  /* Modal je u flex koloni bez `min-h-0` — sadržaj bi probio dno („Sačuvaj“ se iseče) */
+  .ui-modal-panel .settings-form {
+    min-height: 0;
+  }
+  @media (min-width: 900px) {
+    .settings-form-grid {
+      grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    }
+  }
+
+  .settings-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.875rem;
+    padding: 1.125rem;
+    border-radius: var(--radius-lg);
+    background: var(--color-surface-1);
+    border: 1px solid var(--color-border-subtle);
+    box-shadow: var(--shadow-sm);
+  }
+  @media (max-width: 639.98px) {
+    .settings-panel { padding: 0.875rem; }
+  }
+
+  .settings-panel-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+
+  .settings-panel-title {
+    font-family: var(--font-family-display);
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--color-text-primary);
+  }
+
+  .settings-panel-hint {
+    margin-top: 0.125rem;
+    font-size: 0.75rem;
+    line-height: 1.45;
+    color: var(--color-text-tertiary);
+  }
+
+  /* Mala kružna kopija trenutnog izbora u zaglavlju panela */
+  .settings-avatar-preview {
+    width: 2.75rem;
+    height: 2.75rem;
+    flex-shrink: 0;
+    border-radius: 999px;
+    object-fit: cover;
+    background: var(--color-surface-3);
+    box-shadow: 0 0 0 1px var(--color-border-default), 0 0 0 3px var(--color-primary-subtle);
+  }
+
+  .settings-label {
+    display: block;
+    margin-bottom: 0.375rem;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-text-tertiary);
+  }
+
+  .settings-subgroup {
+    padding-top: 0.875rem;
+    border-top: 1px solid var(--color-border-subtle);
+  }
+  .settings-subgroup > :not([hidden]) ~ :not([hidden]) {
+    margin-top: 0.5rem;
+  }
+
+  /* Gotovi avatari — 4 u redu, ujednačene pločice sa mekom podlogom */
+  .avatar-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.625rem;
+  }
+  /* Više od 4 lika → 5/6 u redu na širokim modalima, nikad ogromne pločice */
+  @media (min-width: 640px) {
+    .avatar-grid {
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 0.5rem;
+    }
+  }
+  @media (max-width: 420px) {
+    .avatar-grid { gap: 0.5rem; }
+  }
+
+  .avatar-choice {
+    position: relative;
+    aspect-ratio: 1;
+    padding: 0.25rem;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border-subtle);
+    background: var(--color-surface-2);
+    cursor: pointer;
+    transition:
+      border-color var(--dur-base) var(--ease-forge),
+      background-color var(--dur-base) var(--ease-forge),
+      box-shadow var(--dur-base) var(--ease-forge);
+  }
+  .avatar-choice-img {
+    width: 100%;
+    height: 100%;
+    border-radius: calc(var(--radius-md) - 3px);
+    object-fit: cover;
+    background: var(--color-surface-3);
+  }
+  .avatar-choice:hover {
+    border-color: var(--color-border-strong);
+    background: var(--color-surface-3);
+  }
+  .avatar-choice.is-selected {
+    border-color: var(--color-primary-fg);
+    background: var(--color-primary-subtle);
+    box-shadow: 0 0 0 1px var(--color-primary-fg);
+  }
+  .avatar-choice:focus-visible {
+    outline: var(--focus-ring);
+    outline-offset: 2px;
+  }
+  .avatar-choice-check {
+    position: absolute;
+    top: 0.25rem;
+    right: 0.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.125rem;
+    height: 1.125rem;
+    border-radius: 999px;
+    background: var(--color-primary-fg);
+    color: var(--color-surface-0);
+    box-shadow: 0 0 0 2px var(--color-surface-2);
+  }
+
+  /* Boje naslovnice — kružni uzorci, ime boje vidljivo ispod */
+  .cover-swatches {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .cover-swatch {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--swatch) 55%, transparent);
+    background: var(--swatch);
+    color: var(--color-surface-0);
+    cursor: pointer;
+    transition:
+      transform var(--dur-base) var(--ease-forge),
+      box-shadow var(--dur-base) var(--ease-forge),
+      opacity var(--dur-base) var(--ease-forge);
+    opacity: 0.7;
+  }
+  .cover-swatch:hover {
+    opacity: 1;
+    transform: translateY(-1px);
+  }
+  .cover-swatch.is-selected {
+    opacity: 1;
+    box-shadow: 0 0 0 2px var(--color-surface-1), 0 0 0 4px var(--swatch);
+  }
+  .cover-swatch:focus-visible {
+    outline: var(--focus-ring);
+    outline-offset: 3px;
+  }
+
+  /* Brojač biografije — traka raste sa tekstom i požuti pred limit */
+  .bio-meter {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+  }
+  .bio-meter-track {
+    flex: 1;
+    height: 2px;
+    border-radius: 999px;
+    background: var(--color-surface-3);
+    overflow: hidden;
+  }
+  .bio-meter-fill {
+    display: block;
+    height: 100%;
+    background: var(--color-primary-fg);
+    transition: width var(--dur-base) var(--ease-forge), background-color var(--dur-base) var(--ease-forge);
+  }
+  .bio-meter-fill[data-near-limit='true'] {
+    background: var(--color-warning);
+  }
+
+  /* Strelice za glasanje u profilu/temama — bounce preko scale, cyan */
+  @keyframes voteBounceCyan {
+    0% { transform: scale(1) translateY(0); }
+    35% { transform: scale(1.2) translateY(-2px); }
+    100% { transform: scale(1) translateY(0); }
+  }
+
+  /* MODERATOR / MOD bedž u meta redu teme */
+  .role-emblem::before {
+    content: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .profile-avatar-frame::before,
+    .profile-xp-fill {
+      animation: none !important;
+    }
+  }
+}

@@ -23,13 +23,13 @@ const TONE_CLASS: Record<BadgeTone, string> = {
 };
 
 const DOT_CLASS: Record<BadgeTone, string> = {
-  primary: 'bg-primary',
-  secondary: 'bg-secondary',
-  success: 'bg-[#10b981]',
-  warning: 'bg-[#f59e0b]',
-  error: 'bg-[#ef4444]',
-  neutral: 'bg-white/50',
-  featured: 'bg-white',
+  primary: 'bg-[var(--color-primary)]',
+  secondary: 'bg-[var(--color-secondary)]',
+  success: 'bg-[var(--color-community)]',
+  warning: 'bg-[var(--color-deal)]',
+  error: 'bg-[var(--color-tertiary)]',
+  neutral: 'bg-[var(--color-text-tertiary)]',
+  featured: 'bg-[var(--color-on-solid)]',
 };
 
 export function Badge({ children, tone = 'primary', dot, className, title }: BadgeProps) {
@@ -44,9 +44,17 @@ export function Badge({ children, tone = 'primary', dot, className, title }: Bad
 /** Mapira kategoriju članka na ton badge-a (stabilno kroz ceo portal). */
 export function categoryTone(category?: string): BadgeTone {
   const value = (category ?? '').toLowerCase();
-  if (value.includes('hardware') || value.includes('hardver')) return 'secondary';
+  if (!value) return 'neutral';
+  /* VIOLET — opšte vijesti i recenzije (primarni sadržaj portala) */
+  if (value.includes('vesti') || value.includes('news')) return 'primary';
   if (value.includes('recenz') || value.includes('review')) return 'primary';
-  if (value.includes('playstation') || value.includes('xbox') || value.includes('nintendo')) return 'error';
+  /* CYAN — liste i hardver (PC/Gaming zona) */
+  if (value.includes('liste') || value.includes('lista') || value.includes('list')) return 'secondary';
+  if (value.includes('hardware') || value.includes('hardver') || value === 'pc' || value.startsWith('pc ')) return 'secondary';
+  /* AMBER — esport (deals zona) */
   if (value.includes('esport')) return 'warning';
+  /* ROSE — konzole */
+  if (value.includes('playstation') || value.includes('xbox') || value.includes('nintendo') || value.includes('konzol')) return 'error';
+  /* NEUTRAL — najave i sve ostalo */
   return 'neutral';
 }

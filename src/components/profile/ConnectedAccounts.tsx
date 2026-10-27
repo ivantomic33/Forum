@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Check, Link2, Loader2, Trash2 } from 'lucide-react';
+import { Check, Link2, Loader2, Unlink } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge, Card, CardHeader } from '../ui';
 import { api } from '../../lib/api';
@@ -70,10 +70,10 @@ function LoginConnections() {
                   type="button"
                   onClick={() => unlink(provider)}
                   disabled={busy === provider}
-                  className="rounded p-1.5 text-white/35 transition hover:bg-white/[0.05] hover:text-rose-400"
+                  className="account-disconnect-btn rounded p-1.5 text-white/35 transition hover:bg-white/[0.05]"
                   aria-label={`Otkači ${meta.name}`}
                 >
-                  {busy === provider ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                  {busy === provider ? <Loader2 size={13} className="animate-spin" /> : <Unlink size={13} />}
                 </button>
               ) : (
                 <a
@@ -143,14 +143,15 @@ export function ConnectedAccounts({
                   <button
                     type="button"
                     onClick={() => onDisconnect(platform.id)}
-                    className="rounded p-1.5 text-white/35 transition hover:bg-white/[0.05] hover:text-rose-400"
+                    className="account-disconnect-btn rounded p-1.5 text-white/35 transition hover:bg-white/[0.05]"
                     aria-label={`Otkači ${platform.name}`}
+                    title={`Otkači ${platform.name}`}
                   >
-                    <Trash2 size={13} />
+                    <Unlink size={13} />
                   </button>
                 )}
               </div>
-              <div className="flex items-center gap-1.5 border-t border-white/[0.06] pt-2.5">
+              <div className="flex items-center border-t border-white/[0.06] pt-2.5">
                 {connected ? (
                   <span className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-emerald-400">
                     <Check size={13} className="flex-shrink-0" aria-hidden="true" />
@@ -160,7 +161,7 @@ export function ConnectedAccounts({
                   <button
                     type="button"
                     onClick={() => onConnect(platform.id)}
-                    className="account-connect-link text-xs font-medium text-[var(--color-text-tertiary)]"
+                    className="account-connect-btn ui-btn br-secondary ui-btn-sm w-full min-h-0 px-2.5 py-1.5 text-xs"
                   >
                     + Poveži nalog
                   </button>

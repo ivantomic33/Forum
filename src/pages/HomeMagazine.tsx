@@ -1,33 +1,39 @@
-﻿import { Link } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useCallback, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import {
-  Bookmark, Check, ChevronRight, Clock, Eye, Flame, Gamepad2, Mail,
-  MessageSquare, Send, Sparkles,
-} from 'lucide-react';
+import { ArrowUpRight, Bookmark, Check, ChevronRight, Clock, Eye, Mail,
+  MessageSquare, Send, Sparkles, Tag, Trophy, Zap } from 'lucide-react';
 import { api } from '../lib/api';
+import type { Article, Deal, Thread } from '../../contracts/index';
 import {
-  Badge, Button, Card, CardHeader, EmptyState, ErrorState, Skeleton, SkeletonCard,
-  categoryTone, cn,
+  Button, EmptyState, ErrorState, PriceTag, SectionHeader, Skeleton, StoryCard,
+  SkeletonThreadRows, ThreadRow, cn,
 } from '../components/ui';
-import { VerifiedBadge } from '../components/ui/VerifiedBadge';
-
+import { useAuthStore } from '../store/authStore';
+import { useHeroParallax } from '../hooks/useHeroParallax';
 /**
- * DEVELOPMENT fallback � prikazuje se SAMO u dev build-u da bi layout
- * bio vidljiv bez baze. U produkciji se prikazuje po�ten EmptyState.
+ * DEVELOPMENT fallback - prikazuje se SAMO u dev build-u da bi layout
+ * bio vidljiv bez baze. U produkciji se prikazuje posten EmptyState.
  */
-const devFallbackArticles = [
+const devFallbackArticles: Article[] = [
   {
     id: 'dev-1',
     slug: 'dev-sample-article',
+    content: '',
+    authorId: 'dev',
+    tags: [],
+    status: 'draft',
+    isFeatured: false,
+    reactions: {},
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
     title: '[DEV] PlayStation 6 specifikacije: RDNA 5 arhitektura',
-    excerpt: 'Primer clanka koji se prikazuje samo u development re�imu.',
+    excerpt: 'Primer clanka koji se prikazuje samo u development rezimu.',
     category: 'Playstation',
     coverImage: 'https://images.unsplash.com/photo-1606813907291-d86efa9b94db?w=900&q=80',
     author: 'NEXUS Redakcija',
     views: 0,
     publishedAt: new Date().toISOString(),
-    readTime: '2 min',
   },
 ];
 
@@ -42,7 +48,18 @@ const CATEGORY_TABS = [
   { id: 'Lista', label: 'Liste' },
 ];
 
-const readTime = (article: any) => `${Math.max(2, Math.ceil((article?.content?.length || 600) / 900))} min`;
+const readTime = (article: { content?: string } | null | undefined) => `${Math.max(2, Math.ceil((article?.content?.length || 600) / 900))} min`;
+
+  /** Cena kao na deal kartici — mono, tabularni brojevi (talasasta skala U-01). */
+const price = (value: number, currency: string) => {
+    if (!Number.isFinite(value)) return '—';
+  if (value === 0) return 'Besplatno';
+  try {
+    return new Intl.NumberFormat('de-DE', { style: 'currency', currency: currency || 'EUR' }).format(value);
+  } catch {
+    return `${value.toFixed(2)} ${currency}`;
+  }
+};
 
 const formatDate = (value?: string | null) => {
   if (!value) return 'Danas';
@@ -51,8 +68,25 @@ const formatDate = (value?: string | null) => {
   return date.toLocaleDateString('sr-Latn-RS', { day: 'numeric', month: 'short', year: 'numeric' });
 };
 
+/**
+ * POČETNA — „Danas u gamingu“ (U-02, U-03, U-04)
+ *
+ * Portal je podeljen na tri pojasa, svaki sa svojim vizuelnim jezikom:
+ *
+ *   1. HERO  — 16:9 slika preko celog pojasa, fade u `surface-0`, eyebrow
+ *              (kategorija), H1 max 2 reda, jedan primarni CTA „Pročitaj“.
+ *   2. TOP PRIČE — tri horizontalne StoryCard (slika levo 40%, tekst desno)
+ *              + desno „Najbolji popusti danas“ sa 2 DealCard (cena u mono 28 px).
+ *   3. FORUM U FOKUSU — pet ThreadRow (ikona, naslov, meta, avatar + vreme)
+ *              + CTA „Pridruži se diskusiji“.
+ *
+ * Ispod: „Najnovije objave“ kao čitljiva lista sa filter tabovima kategorija.
+ */
 export default function HomeMagazine() {
   const isDev = import.meta.env?.DEV ?? false;
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  // Sina (4.0 "Neon Glass") — parallax samo preko CSS promenljivih na `.hero-band`.
+  useHeroParallax();
   const [category, setCategory] = useState('all');
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [bookmarked, setBookmarked] = useState<Set<string>>(() => {
@@ -83,7 +117,26 @@ export default function HomeMagazine() {
     queryFn: () => api.forum.listThreads('all', 'hot'),
   });
 
-  const allArticles: any[] = useMemo(() => {
+  // F-1 — „Danas u gamingu“: tri bloka u JEDNOM zahtevu (vesti, popusti, teme).
+  // Stari `home-deals` upit ostaje jer sekcija „Najbolji popusti danas“ ima širi
+  // kriterijum (4 kartice), a dnevni blok je tajna verzija istog sadržaja.
+  const dailyQuery = useQuery({
+    queryKey: ['home-daily'],
+    queryFn: () => api.deals.daily(),
+    staleTime: 3 * 60_000,
+  });
+
+  // U-02/U-04 - portal nije samo lista vesti: "Najbolji popusti danas" je
+  // sekcija sa drugim vokabularom (cena, %), a ne jos jedna kartica clanka.
+  const dealsQuery = useQuery({
+    queryKey: ['home-deals'],
+    queryFn: () => api.deals.list({ sort: 'discount', limit: 4, offset: 0 }),
+    staleTime: 5 * 60_000,
+  });
+
+  // N10 - `Article` je tip iz ugovora; dev fallback je namerno parcijalan
+  // (`content`/`tags` nisu potrebni na kartici), pa se tip ne forsira u `any`.
+  const allArticles = useMemo(() => {
     const list = articlesQuery.data?.articles ?? [];
     if (list.length) return list;
     return isDev ? devFallbackArticles : [];
@@ -93,6 +146,8 @@ export default function HomeMagazine() {
   const hasMore = visibleCount < allArticles.length;
 
   const hero = allArticles.find((article) => article.isFeatured) || allArticles[0];
+  // Pojas 2 (Top priče): 3 najnovije vesti osim hero-a, slika levo / tekst desno.
+  const topStories = allArticles.filter((article) => article !== hero).slice(0, 3);
   const heroOthers = visibleArticles.filter((article) => article !== hero);
   const topRead = useMemo(
     () => [...allArticles].sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, 5),
@@ -125,32 +180,51 @@ export default function HomeMagazine() {
   };
 
   const tickerItems = tickerQuery.data?.items ?? [];
-  const threads = (threadsQuery.data?.threads ?? []).slice(0, 4);
+  const daily = dailyQuery.data;
+  // Hero je već gore – iste vesti se ne ponavljaju u blokovima ispod.
+  const dailyArticles = (daily?.articles ?? []).filter((article) => article.id !== hero?.id).slice(0, 2);
+  const dailyDeals: Deal[] = (daily?.deals ?? []).filter((deal) => deal.status === 'active').slice(0, 2);
+  const dailyThreads = (daily?.threads ?? []).slice(0, 2);
+  const threads = (threadsQuery.data?.threads ?? []).slice(0, 5);
+  const topDeals: Deal[] = (dealsQuery.data?.deals ?? [])
+    .filter((deal) => deal.status === 'active')
+    .slice(0, 2);
+  // Pojasi 2 i 3: top-priče su one koje nisu hero niti red u "Najnovije" listi.
+  const latestStories = hero
+    ? visibleArticles.filter((article) => article !== hero && !topStories.includes(article))
+    : visibleArticles;
+  // Relativno vreme poslednje aktivnosti (red teme).
+  const relativeTime = (value?: string | null) => {
+    if (!value) return undefined;
+    const diffMs = Date.now() - new Date(value).getTime();
+    if (Number.isNaN(diffMs)) return undefined;
+    const minutes = Math.max(1, Math.round(diffMs / 60_000));
+    if (minutes < 60) return `pre ${minutes} min`;
+    const hours = Math.round(minutes / 60);
+    if (hours < 24) return `pre ${hours} h`;
+    return `pre ${Math.round(hours / 24)} d`;
+  };
 
   return (
     <div className="pb-16">
-      <div className="container">
-        {/* Breaking news ticker — realni naslovi sa API-ja */}
+      <div className="container pb-4">
+        {/* U-03 - ticker (jedini status u gornjoj traci): mirna podloga, jedna
+            tacka boje, tekst na 13 px. */}
         {tickerItems.length > 0 && (
-          <div className="mt-4 mb-8 flex items-center gap-3 overflow-hidden rounded-xl border border-white/[0.08] bg-[#0D101D]/80 py-1.5 pl-1.5 pr-3 shadow-[0_8px_32px_rgba(0,0,0,0.4)] backdrop-blur-md">
-            <span className="nx-hot-pulse relative flex flex-shrink-0 items-center gap-1.5 rounded-full border border-rose-500/40 bg-gradient-to-r from-rose-500/20 to-violet-500/20 px-2.5 py-1 font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-rose-200">
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-500 opacity-75" aria-hidden="true" />
-                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-rose-500 shadow-[0_0_8px_#f43f5e]" aria-hidden="true" />
-              </span>
+          <div className="mb-6 mt-4 flex items-center gap-3 overflow-hidden rounded-lg border-[var(--color-border-subtle)] bg-[var(--color-surface-1)] py-1.5 pl-2 pr-3">
+            <span className="flex flex-shrink-0 items-center gap-1.5 text-eyebrow text-[var(--color-primary-fg)]">
+              <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-primary-fg)]" aria-hidden="true" />
               Vrele teme
             </span>
-            <div className="ticker-wrap flex-1 overflow-hidden">
-              <div className="ticker-track flex items-center gap-8 whitespace-nowrap text-[13px] text-slate-400" role="marquee" aria-label="Najnovije vesti">
-                {[...tickerItems, ...tickerItems].map((item, index) => (
+            <div className="ticker-wrap min-w-0 flex-1 overflow-hidden">
+              <div className="ticker-track flex items-center gap-8 whitespace-nowrap text-meta" role="marquee" aria-label="Najnovije vesti">
+                {tickerItems.map((item) => (
                   <Link
-                    key={`${item.id}-${index}`}
+                    key={item.id}
                     to={item.href}
-                    tabIndex={index < tickerItems.length ? 0 : -1}
-                    aria-hidden={index >= tickerItems.length}
-                    className="flex items-center gap-2 transition hover:text-white"
+                    className="flex items-center gap-2 transition hover:text-[var(--color-text-primary)]"
                   >
-                    <span className="text-cyan-400/80" aria-hidden="true">—</span>
+                    <span className="text-[var(--color-text-muted)]" aria-hidden="true">—</span>
                     <span>{item.label}</span>
                   </Link>
                 ))}
@@ -167,22 +241,18 @@ export default function HomeMagazine() {
             className="mt-6"
           />
         ) : articlesQuery.isLoading ? (
-          <div className="mt-6 space-y-8" aria-busy="true">
-            <div className="grid gap-7 lg:grid-cols-12">
-              <Skeleton className="aspect-[16/10] rounded-xl lg:col-span-6" />
-              <div className="space-y-4 lg:col-span-6">
-                <Skeleton className="h-4 w-40" />
-                <Skeleton className="h-10 w-full" />
-                <Skeleton className="h-10 w-4/5" />
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-2/3" />
+          /* Skelet prati finalni layout: hero 16:9 + 3 kartice + 4 reda (CLS < 0,05) */
+          <div className="mt-6 space-y-10" aria-busy="true">
+            <Skeleton className="aspect-[16/9] max-h-[70vh] w-full rounded-xl" />
+            <div className="space-y-3">
+              <Skeleton className="h-4 w-32" />
+              <div className="grid gap-4 sm:grid-cols-3">
+                {[0, 1, 2].map((item) => (
+                  <Skeleton key={item} className="h-[7.25rem] rounded-lg" />
+                ))}
               </div>
             </div>
-            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-              {[0, 1, 2].map((item) => (
-                <SkeletonCard key={item} />
-              ))}
-            </div>
+            <SkeletonThreadRows rows={4} />
           </div>
         ) : allArticles.length === 0 ? (
           <EmptyState
@@ -198,363 +268,308 @@ export default function HomeMagazine() {
           />
         ) : (
           <>
-            {/* Featured story — lead članak dominira stranicom */}
+            {/* ─────────── POJAS 1 — HERO (slika preko celog pojasa, H1 max 2 reda) ─────────── */}
             {hero && (
-              <section
-                className="group relative mb-12 overflow-hidden rounded-2xl border border-white/[0.09] bg-[#0D101D]/80 shadow-[0_8px_32px_rgba(0,0,0,0.45)] backdrop-blur-md transition-all duration-300 lg:mb-16 hover:shadow-[0_18px_50px_-12px_rgba(124,58,237,0.45)]"
-                aria-labelledby="featured-title"
-              >
-                <div className="grid grid-cols-1 items-stretch lg:grid-cols-12">
-                  <div className="relative aspect-[16/10] overflow-hidden border-b border-white/[0.07] bg-surface-0 lg:col-span-7 lg:aspect-auto lg:min-h-[400px] lg:border-b-0 lg:border-r">
-                    <img
-                      src={hero.coverImage || 'https://images.unsplash.com/photo-1542751371-adc38448a05e?w=1200&q=80'}
-                      alt={hero.title}
-                      width={800}
-                      height={500}
-                      className="h-full w-full object-cover transition-transform duration-500 ease-out group-hover:scale-105"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-r from-[#06070E] via-[#06070E]/60 to-transparent" aria-hidden="true" />
-                    <div className="absolute inset-0 bg-gradient-to-t from-[#06070E]/90 via-transparent to-transparent lg:hidden" aria-hidden="true" />
-                    <div className="absolute left-4 top-4 flex items-center gap-2">
-                      <Badge tone="featured" className="nx-featured-pulse">
-                        <Sparkles size={11} /> Featured
-                      </Badge>
-                      <Badge tone={categoryTone(hero.category)}>{hero.category}</Badge>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => toggleBookmark(hero.id)}
-                      aria-label={bookmarked.has(hero.id) ? 'Ukloni članak iz sačuvanih' : 'Sačuvaj članak'}
-                      aria-pressed={bookmarked.has(hero.id)}
-                      className="ui-icon-btn absolute right-4 top-4 !bg-[#06070E]/80 backdrop-blur-md"
-                    >
-                      <Bookmark size={15} fill={bookmarked.has(hero.id) ? 'currentColor' : 'none'} />
-                    </button>
-                  </div>
-
-                  <div className="flex flex-col justify-center p-5 sm:p-7 lg:col-span-5 lg:p-9">
-                    <span className="eyebrow mb-4">U fokusu</span>
-                    <Link to={`/article/${hero.slug || hero.id}`} className="group">
-                      <h1
-                        id="featured-title"
-                        className="mb-4 font-display text-2xl font-semibold leading-[1.12] tracking-[-0.03em] text-white transition-colors group-hover:text-violet-300 sm:text-[1.75rem] lg:text-[2.125rem]"
-                      >
-                        {hero.title}
-                      </h1>
-                    </Link>
-                    <p className="mb-6 line-clamp-3 text-[15px] leading-relaxed text-white/60">{hero.excerpt}</p>
-
-                    <div className="meta-row mb-6">
+              <StoryCard
+                variant="hero"
+                to={`/article/${hero.slug || hero.id}`}
+                title={hero.title}
+                image={hero.coverImage || 'https://images.unsplash.com/photo-1542751371-adc38448a05e?w=1600&q=80'}
+                imageAlt={hero.title}
+                eyebrow={hero.category || 'Glavna priča'}
+                excerpt={hero.excerpt}
+                overlay={
+                  <button
+                    type="button"
+                    onClick={() => toggleBookmark(hero.id)}
+                    aria-label={bookmarked.has(hero.id) ? 'Ukloni clanak iz sacuvanih' : 'Sacuvaj clanak'}
+                    aria-pressed={bookmarked.has(hero.id)}
+                    className="ui-icon-btn"
+                  >
+                    <Bookmark size={15} fill={bookmarked.has(hero.id) ? 'currentColor' : 'none'} />
+                  </button>
+                }
+                meta={
+                  <div className="hero-band-actions">
+                    <span className="meta-row">
+                      <span className="flex items-center gap-1.5">
+                        <Clock size={14} aria-hidden="true" /> {readTime(hero)}
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <Eye size={14} aria-hidden="true" /> {(hero.views || 0).toLocaleString('sr-Latn-RS')}
+                      </span>
+                      <span className="dot" aria-hidden="true">—</span>
                       <span>{formatDate(hero.publishedAt || hero.createdAt)}</span>
-                      <span className="flex items-center gap-1.5">
-                        <Clock size={13} aria-hidden="true" /> {readTime(hero)}
-                      </span>
-                      <span className="flex items-center gap-1.5">
-                        <Eye size={13} aria-hidden="true" /> {(hero.views || 0).toLocaleString('sr-Latn-RS')}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center justify-between gap-4 border-t border-white/[0.07] pt-5">
-                      <div className="flex min-w-0 items-center gap-3">
-                        <img
-                          src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(hero.author || 'nexus')}`}
-                          alt=""
-                          width={38}
-                          height={38}
-                          className="h-[38px] w-[38px] rounded-full border border-violet-500/40 bg-surface-0 shadow-[0_0_15px_-4px_rgba(124,58,237,0.8)]"
-                        />
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-medium text-white">{hero.author || 'NEXUS Redakcija'}</div>
-                          <div className="text-xs text-white/45">Gaming redakcija</div>
-                        </div>
-                      </div>
-                      <Link to={`/article/${hero.slug || hero.id}`} className="ui-btn br-primary ui-btn-sm">
-                        Pročitaj
-                        <ChevronRight size={15} />
-                      </Link>
-                    </div>
+                      <span className="dot" aria-hidden="true">—</span>
+                      <span>{hero.author || 'NEXUS Redakcija'}</span>
+                    </span>
+                    <Link to={`/article/${hero.slug || hero.id}`} className="ui-btn br-primary ui-btn-md">
+                      Pročitaj
+                      <ChevronRight size={16} aria-hidden="true" />
+                    </Link>
                   </div>
-                </div>
-              </section>
+                }
+              />
             )}
 
-            {/* Heading + category tabs */}
-            <div className="section-head mb-6 md:mt-2">
-              <div className="section-head-main">
-                <span className="eyebrow">Magazin</span>
-                <h2 className="section-title">Najnovije objave</h2>
-                <p className="mt-2 text-sm text-[var(--color-text-secondary)]">Vesti sortirane hronološki po datumu objave</p>
-              </div>
-              <div className="flex flex-wrap items-center gap-1.5" role="tablist" aria-label="Kategorije vesti">
-                {CATEGORY_TABS.map((tab) => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={category === tab.id}
-                    onClick={() => {
-                      setCategory(tab.id);
-                      setVisibleCount(PAGE_SIZE);
-                    }}
-                    className={cn('ui-tab', category === tab.id && 'is-active')}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 items-start gap-10 lg:grid-cols-12">
-              <div className="lg:col-span-8">
-                {heroOthers.length === 0 ? (
-                  <EmptyState
-                    icon={<Sparkles size={20} />}
-                    title="Nema više vesti u ovoj kategoriji"
-                    message="Izaberi drugu kategoriju ili pogledaj sve vesti."
-                  />
-                ) : (
-                  <div className="mb-8 grid grid-cols-1 gap-5 sm:grid-cols-2">
-                    {heroOthers.map((article) => (
-                      <Card key={article.id} flush interactive className="group flex flex-col overflow-hidden">
-                        <div className="relative aspect-[16/10] overflow-hidden bg-surface-0">
-                          <img
-                            src={article.coverImage || 'https://images.unsplash.com/photo-1542751371-adc38448a05e?w=900&q=80'}
-                            alt={article.title}
-                            width={600}
-                            height={375}
-                            loading="lazy"
-                            className="h-full w-full object-cover transition-transform duration-500 ease-out group-hover:scale-105"
-                          />
-                          <div className="absolute inset-0 bg-gradient-to-t from-[#0D101D] via-transparent to-transparent" aria-hidden="true" />
-                          <div className="absolute left-3 top-3">
-                            <Badge tone={categoryTone(article.category)}>{article.category}</Badge>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => toggleBookmark(article.id)}
-                            aria-label={bookmarked.has(article.id) ? 'Ukloni članak iz sačuvanih' : 'Sačuvaj članak'}
-                            aria-pressed={bookmarked.has(article.id)}
-                            className="ui-icon-btn absolute right-3 top-3 !h-8 !w-8 !bg-[#06070E]/80 backdrop-blur-md"
-                          >
-                            <Bookmark size={13} fill={bookmarked.has(article.id) ? 'currentColor' : 'none'} />
-                          </button>
-                        </div>
-                        <div className="flex flex-1 flex-col justify-between p-4">
-                          <div>
-                            <div className="meta-row mb-2.5">
+            {/* ─────────── POJAS 2 — TOP PRIČE (3 kolone) + NAJBOLJI POPUSTI DANAS ─────────── */}
+            <div className="home-grid">
+              <div className="min-w-0">
+                <section aria-labelledby="top-stories-title">
+                  <SectionHeader eyebrow="Magazin" title="Top price" id="top-stories-title" accent="var(--color-primary)" />
+                  {topStories.length === 0 ? (
+                    <EmptyState
+                      className="mt-5"
+                      icon={<Sparkles size={20} />}
+                      title="Nema više vesti u ovoj kategoriji"
+                      message="Izaberi drugu kategoriju ili pogledaj sve vesti."
+                    />
+                  ) : (
+                    /* StoryCard `card` = horizontalna: slika levo 40%, tekst desno */
+                    <div className="mt-5 grid gap-3 xl:grid-cols-3">
+                      {topStories.map((article) => (
+                        <StoryCard
+                          key={article.id}
+                          variant="card"
+                          to={`/article/${article.slug || article.id}`}
+                          title={article.title}
+                          image={article.coverImage || 'https://images.unsplash.com/photo-1542751371-adc38448a05e?w=900&q=80'}
+                          eyebrow={article.category}
+                          meta={
+                            <span className="meta-row">
                               <span>{formatDate(article.publishedAt || article.createdAt)}</span>
+                              <span className="dot" aria-hidden="true">—</span>
                               <span>{readTime(article)}</span>
-                              <span className="flex items-center gap-1">
-                                <Eye size={12} aria-hidden="true" /> {(article.views || 0).toLocaleString('sr-Latn-RS')}
-                              </span>
-                            </div>
-                            <Link to={`/article/${article.slug || article.id}`}>
-                              <h3 className="card-title-link mb-2 line-clamp-2 font-display text-[15px] font-semibold leading-snug">
-                                {article.title}
-                              </h3>
-                            </Link>
-                            <p className="mb-4 line-clamp-2 text-[13px] leading-relaxed text-white/55">{article.excerpt}</p>
-                          </div>
-                          <div className="flex items-center justify-between border-t border-white/[0.06] pt-3 text-xs">
-                            <span className="text-white/50">{article.author || 'NEXUS Redakcija'}</span>
-                            <Link
-                              to={`/article/${article.slug || article.id}`}
-                              className="flex items-center gap-1 font-medium text-cyan-400 transition hover:gap-1.5 hover:text-cyan-300 hover:drop-shadow-[0_0_8px_rgba(6,182,212,0.7)]"
-                            >
-                              Pročitaj <ChevronRight size={13} />
-                            </Link>
-                          </div>
-                        </div>
-                      </Card>
-                    ))}
-                  </div>
-                )}
+                            </span>
+                          }
+                        />
+                      ))}
+                    </div>
+                  )}
+                </section>
 
-                {/* Prava paginacija — učitava sledeću stranu, ne duplira iste članke */}
-                {hasMore && (
-                  <div className="pt-2 text-center">
-                    <Button
-                      variant="secondary"
-                      onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}
-                      rightIcon={<ChevronRight size={15} />}
-                    >
-                      Prikaži još vesti ({allArticles.length - visibleCount})
-                    </Button>
-                  </div>
-                )}
+            {/* ─────────── POJAS 3 — FORUM U FOKUSU (5 ThreadRow + CTA) ─────────── */}
+                <section className="mt-12 border-t border-[var(--color-border-subtle)] pt-10 zone-community" aria-labelledby="discussions-title">
+                  <SectionHeader
+                    eyebrow="Zajednica"
+                    title="Forum u fokusu"
+                    id="discussions-title"
+                    accent="var(--color-community)"
+                    moreHref="/forum"
+                    moreLabel="Ceo forum"
+                  />
+
+                  {threadsQuery.isLoading ? (
+                    <div className="mt-3">
+                      <SkeletonThreadRows rows={5} />
+                    </div>
+                  ) : threads.length === 0 ? (
+                    <EmptyState
+                      className="mt-5"
+                      icon={<MessageSquare size={20} />}
+                      title="Forum još nema tema"
+                      message="Budi prvi koji će otvoriti diskusiju o igrama, hardveru ili eSportu."
+                      action={
+                        <Link to="/forum?compose=1" className="ui-btn br-primary ui-btn-sm">
+                          Otvori temu
+                        </Link>
+                      }
+                    />
+                  ) : (
+                    <>
+                      <div className="mt-3">
+                        {threads.map((thread) => (
+                          <ThreadRow
+                            key={thread.id}
+                            to={`/thread/${thread.id}`}
+                            title={thread.title}
+                            categoryLabel={thread.subforum}
+                            categoryIcon={<MessageSquare size={16} aria-hidden="true" />}
+                            replies={thread.replies || 0}
+                            votes={thread.karma || 0}
+                            author={thread.author}
+                            time={relativeTime(thread.createdAt)}
+                            lastAvatar={
+                              <img
+                                src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(thread.author || 'user')}`}
+                                alt=""
+                                width={28}
+                                height={28}
+                                loading="lazy"
+                                className="h-7 w-7 rounded-full border-[var(--color-border-subtle)]"
+                              />
+                            }
+                            lastTime={relativeTime(thread.createdAt)}
+                          />
+                        ))}
+                      </div>
+                      <div className="mt-6 flex-wrap items-center gap-4">
+                        <Link to="/forum" className="ui-btn br-primary ui-btn-md">
+                          Pridruži se diskusiji
+                        </Link>
+                        <span className="meta-row">
+                          <Trophy size={14} aria-hidden="true" />
+                          XP se skuplja za teme, odgovore i glasove zajednice.
+                        </span>
+                      </div>
+                    </>
+                  )}
+                </section>
               </div>
 
-              {/* Sidebar */}
-              <aside className="space-y-6 lg:col-span-4 lg:sticky lg:top-24">
-                <Card variant="static">
-                  <CardHeader
-                    title="Najčitanije"
-                    icon={<Flame size={15} className="text-cyan-400" aria-hidden="true" />}
-                    action={<Badge tone="neutral">Top 5</Badge>}
-                  />
-                  {topRead.length === 0 ? (
-                    <p className="text-sm text-white/55">Nema dovoljno podataka za listu.</p>
+              {/* Desna kolona – 2 DealCard (cena je hero) + podsetnik za svakodnevni pregled */}
+              <aside className="home-rail" aria-labelledby="deals-title">
+                <section>
+                  <div className="mb-4 flex items-end justify-between gap-3">
+                    <h2 id="deals-title" className="section-title section-title-tight deals-heading">
+                      Najbolji popusti danas
+                    </h2>
+                    <Link to="/deals" className="section-link">
+                      Svi
+                      <ArrowUpRight size={14} aria-hidden="true" />
+                    </Link>
+                  </div>
+                  {topDeals.length === 0 ? (
+                    <p className="text-meta">Trenutno nema aktivnih popusta.</p>
                   ) : (
-                    <ol className="divide-y divide-white/[0.05]">
-                      {topRead.map((article, index) => (
-                        <li key={article.id}>
+                    <div className="grid gap-3">
+                      {topDeals.map((deal) => {
+                        const hoursLeft = deal.expiresAt
+                          ? Math.round((new Date(deal.expiresAt).getTime() - Date.now()) / 3_600_000)
+                          : null;
+                        const urgent = hoursLeft !== null && hoursLeft >= 0 && hoursLeft <= 24;
+                        return (
                           <Link
-                            to={`/article/${article.slug || article.id}`}
-                            className="group flex items-start gap-3.5 py-3 first:pt-0 last:pb-0"
+                            key={deal.id}
+                            to={`/deals/${deal.id}`}
+                            className={cn('deal-card group', urgent && 'is-urgent')}
                           >
-                            <span className="w-7 flex-shrink-0 bg-gradient-to-b from-cyan-400 to-violet-600 bg-clip-text pt-0.5 font-mono text-lg font-bold leading-none text-transparent drop-shadow-[0_0_8px_rgba(6,182,212,0.25)] transition group-hover:drop-shadow-[0_0_12px_rgba(6,182,212,0.7)]">
-                              {String(index + 1).padStart(2, '0')}
-                            </span>
-                            <div className="min-w-0 flex-1">
-                              <span className="mb-1 block font-mono text-[10px] uppercase tracking-[0.1em] text-white/40">
-                                {article.category}
-                              </span>
-                              <h4 className="card-title-link line-clamp-2 text-[13px] font-medium leading-snug">
-                                {article.title}
-                              </h4>
-                              <span className="mt-1 block font-mono text-[11px] text-white/35">
-                                {(article.views || 0).toLocaleString('sr-Latn-RS')} pregleda
-                              </span>
+                            <div className="flex items-start gap-3">
+                              <div className="h-16 w-12 flex-shrink-0 overflow-hidden rounded-md bg-[var(--color-surface-2)]">
+                                {deal.gameCover ? (
+                                  <img src={deal.gameCover} alt="" loading="lazy" className="h-full w-full object-cover" />
+                                ) : (
+                                  <span className="flex h-full w-full items-center justify-center text-[var(--color-text-tertiary)]">
+                                    <Tag size={18} aria-hidden="true" />
+                                  </span>
+                                )}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <span className="block truncate text-micro text-[var(--color-text-tertiary)]">{deal.store}</span>
+                                <span className="deal-card-title mt-0.5">{deal.title}</span>
+                              </div>
                             </div>
+                            <PriceTag
+                              price={deal.price}
+                              originalPrice={deal.originalPrice}
+                              currency={deal.currency}
+                              discountPct={deal.discountPct}
+                              expiresAt={deal.expiresAt}
+                            />
                           </Link>
-                        </li>
-                      ))}
-                    </ol>
-                  )}
-                </Card>
-
-                <Card variant="static" className="relative overflow-hidden !border-white/[0.1]">
-                  <div
-                    className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-violet-500/60 to-transparent"
-                    aria-hidden="true"
-                  />
-                  <div className="mb-3 flex items-center gap-2">
-                    <span className="flex h-8 w-8 items-center justify-center rounded-lg border border-violet-500/30 bg-violet-500/10 shadow-[0_0_16px_-6px_rgba(124,58,237,0.9)]">
-                      <Mail size={14} className="text-cyan-400" aria-hidden="true" />
-                    </span>
-                    <h3 className="font-display text-[15px] font-semibold text-white">NEXUS Newsletter</h3>
-                  </div>
-                  <p className="mb-4 text-[13px] leading-relaxed text-white/55">
-                    Svake nedelje gejming najave, recenzije i popusti na Steamu direktno u inbox.
-                  </p>
-                  {newsletterStatus === 'success' ? (
-                    <div className="flex items-center gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-[13px] text-emerald-300" role="status">
-                      <Check size={14} />
-                      <span>{newsletterMsg}</span>
+                        );
+                      })}
                     </div>
-                  ) : (
-                    <form onSubmit={submitNewsletter} className="space-y-2.5">
-                      <label htmlFor="newsletter-email" className="sr-only">
-                        Email adresa
-                      </label>
-                      <input
-                        id="newsletter-email"
-                        type="email"
-                        value={newsletterEmail}
-                        onChange={(event) => setNewsletterEmail(event.target.value)}
-                        placeholder="unesite vaš email…"
-                        required
-                        className="ui-field"
-                      />
-                      {newsletterStatus === 'error' && (
-                        <div className="text-xs text-rose-400" role="alert">
-                          {newsletterMsg}
-                        </div>
-                      )}
-                      <Button type="submit" block size="sm" loading={newsletterStatus === 'loading'} leftIcon={<Send size={13} />}>
-                        Pretplati se
-                      </Button>
-                      <div className="text-center font-mono text-[11px] text-white/35">Bez spama • Odjava u svakom trenutku</div>
-                    </form>
                   )}
-                </Card>
+                </section>
 
-                <Card variant="static" className="forge-topline">
-                  <div className="mb-3 flex items-center gap-2">
-                    <span className="flex h-8 w-8 items-center justify-center rounded-lg border border-cyan-500/25 bg-cyan-500/10">
-                      <Gamepad2 size={15} className="text-cyan-300" aria-hidden="true" />
-                    </span>
-                    <h3 className="font-display text-[15px] font-semibold text-white">Baza igara</h3>
-                    <span className="ml-auto rounded-full border border-cyan-500/30 px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-cyan-300">Beta</span>
+                <div className="primary-action-panel no-print">
+                  <p className="eyebrow">NEXUS zajednica</p>
+                  <p className="mt-2 text-h3 text-[var(--color-text-primary)]">
+                    {isAuthenticated ? 'Nastavi tamo gde si stao' : 'Pridruži se diskusiji'}
+                  </p>
+                  <p className="text-body mt-1.5">
+                    {isAuthenticated
+                      ? 'Otvori temu, podeli popust ili odgovori na pitanje zajednice.'
+                      : 'Registracija traje 30 sekundi — XP, bedževi i rang od prve objave.'}
+                  </p>
+                  <div className="mt-4 flex-wrap gap-2">
+                    <Link to={isAuthenticated ? '/notifications' : '/register'} className="ui-btn br-primary ui-btn-md">
+                      {isAuthenticated ? 'Tvoj feed' : 'Registruj se'}
+                    </Link>
+                    <Link to="/forum" className="ui-btn br-ghost ui-btn-md">
+                      Forum
+                    </Link>
                   </div>
-                  <p className="mb-4 text-[13px] leading-relaxed text-white/55">Pridruži se zajednici: diskusije, modovi, ocene i preporuke.</p>
-                  <Link to="/forum" className="ui-btn br-secondary ui-btn-sm w-full">
-                    Pridruži se
-                  </Link>
-                </Card>
+                </div>
               </aside>
             </div>
 
-            {/* Aktivne forum diskusije */}
-            <section className="mt-16 border-t border-white/[0.07] pt-12" aria-labelledby="discussions-title">
-              <div className="section-head">
+            {/* ─────────── NAJNOVIJE OBJAVE (lista u magazinskom ritmu) ─────────── */}
+            <section className="mt-12 border-t border-[var(--color-border-subtle)] pt-10" aria-labelledby="latest-title">
+              <div className="section-head mb-6" style={{ ['--section-accent' as string]: 'var(--color-primary)' }}>
                 <div className="section-head-main">
-                  <span className="eyebrow">Zajednica &amp; Gaming forum</span>
-                  <h2 id="discussions-title" className="section-title">
-                    Aktivna diskusija forumaša
-                  </h2>
+                  <span className="eyebrow">Magazin</span>
+                  <h2 id="latest-title" className="section-title">Najnovije objave</h2>
                 </div>
-                <Link to="/forum" className="ui-btn br-ghost ui-btn-sm">
-                  Poseti forum <ChevronRight size={14} />
-                </Link>
+                <div className="ui-tabs" role="tablist" aria-label="Kategorije vesti">
+                  {CATEGORY_TABS.map((tab) => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={category === tab.id}
+                      onClick={() => {
+                        setCategory(tab.id);
+                        setVisibleCount(PAGE_SIZE);
+                      }}
+                      className={cn('ui-tab', category === tab.id && 'is-active')}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              {threadsQuery.isLoading ? (
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                  {[0, 1, 2, 3].map((item) => (
-                    <Skeleton key={item} className="h-40 rounded-lg" />
-                  ))}
-                </div>
-              ) : threads.length === 0 ? (
+              {latestStories.length === 0 ? (
                 <EmptyState
-                  icon={<MessageSquare size={20} />}
-                  title="Forum još nema tema"
-                  message="Budi prvi koji će otvoriti diskusiju o igrama, hardveru ili eSportu."
-                  action={
-                    <Link to="/forum" className="ui-btn br-primary ui-btn-sm">
-                      Otvori temu
-                    </Link>
-                  }
+                  icon={<Sparkles size={20} />}
+                  title="Nema više vesti u ovoj kategoriji"
+                  message="Izaberi drugu kategoriju ili pogledaj sve vesti."
                 />
               ) : (
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                  {threads.map((thread: any) => (
-                    <Link
-                      key={thread.id}
-                      to={`/thread/${thread.id}`}
-                      className="ui-card ui-card-interactive group flex flex-col justify-between"
-                    >
-                      <div>
-                        <div className="mb-3 flex items-center justify-between gap-2">
-                          <span className="truncate font-mono text-[10px] uppercase tracking-[0.1em] text-white/40">
-                            {thread.subforum}
+                <div className="grid gap-x-8 sm:grid-cols-2">
+                  {latestStories.map((article) => (
+                    <article key={article.id} className="group flex-col">
+                      <StoryCard
+                        variant="card"
+                        to={`/article/${article.slug || article.id}`}
+                        title={article.title}
+                        image={article.coverImage || 'https://images.unsplash.com/photo-1542751371-adc38448a05e?w=900&q=80'}
+                        eyebrow={article.category}
+                        meta={
+                          <span className="meta-row">
+                            <span>{formatDate(article.publishedAt || article.createdAt)}</span>
+                            <span className="dot" aria-hidden="true">—</span>
+                            <span>{readTime(article)}</span>
                           </span>
-                          <span className="font-mono text-[11px] font-semibold text-cyan-400">+{thread.karma || 0}</span>
-                        </div>
-                        <h3 className="card-title-link mb-2 line-clamp-2 font-display text-sm font-semibold leading-snug">
-                          {thread.title}
-                        </h3>
-                        <p className="mb-4 line-clamp-2 text-[13px] leading-relaxed text-white/50">{thread.content}</p>
+                        }
+                      />
+                      <div className="mt-2 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => toggleBookmark(article.id)}
+                          aria-label={bookmarked.has(article.id) ? 'Ukloni clanak iz sacuvanih' : 'Sacuvaj clanak'}
+                          aria-pressed={bookmarked.has(article.id)}
+                          className="ui-icon-btn !h-9 !w-9"
+                        >
+                          <Bookmark size={13} fill={bookmarked.has(article.id) ? 'currentColor' : 'none'} />
+                        </button>
                       </div>
-                      <div className="flex items-center justify-between border-t border-white/[0.06] pt-3 text-xs text-white/45">
-                        <div className="flex min-w-0 items-center gap-1.5">
-                          <img
-                            src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(thread.author || 'user')}`}
-                            alt=""
-                            width={20}
-                            height={20}
-                            loading="lazy"
-                            className="h-5 w-5 rounded-full border border-white/10"
-                          />
-                          <span className="truncate">{thread.author}</span>
-                          <VerifiedBadge isVerified={thread.authorVerified} size="xs" />
-                        </div>
-                        <span className="flex items-center gap-1 font-mono">
-                          <MessageSquare size={12} aria-hidden="true" /> {thread.replies || 0}
-                        </span>
-                      </div>
-                    </Link>
+                    </article>
                   ))}
+                </div>
+              )}
+
+              {hasMore && (
+                <div className="pt-8 text-center">
+                  <Button
+                    variant="secondary"
+                    onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}
+                    rightIcon={<ChevronRight size={15} />}
+                  >
+                    Prikaži još vesti ({allArticles.length - visibleCount})
+                  </Button>
                 </div>
               )}
             </section>

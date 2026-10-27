@@ -1,4 +1,4 @@
-﻿﻿import type { ReactNode } from 'react';
+﻿import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertCircle, ArrowLeft, Gamepad2, Loader2, Sparkles, X } from 'lucide-react';
 
@@ -20,11 +20,9 @@ export interface AuthShellProps {
 export default function AuthShell({ title, description, children, error, success, footer }: AuthShellProps) {
   return (
     <div className="auth-screen">
+      {/* U-12 — ista deterministička CSS pozadina kao AuthPage (nema mrežnog zahteva) */}
       <div className="auth-backdrop" aria-hidden="true">
         <div className="auth-backdrop-image" />
-        <div className="auth-backdrop-shade" />
-        <div className="auth-orb auth-orb-one" />
-        <div className="auth-orb auth-orb-two" />
       </div>
 
       <div className="auth-shell auth-shell-single">
