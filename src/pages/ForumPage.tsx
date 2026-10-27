@@ -278,7 +278,7 @@ export default function ForumPage() {
         >
           <Users size={12} aria-hidden="true" /> Pratim
           {followingFeed && followingQuery.data
-            ? ` (${followingQuery.data.authors ?? 0})`
+            ? ` (${threads.length})`
             : ''}
         </button>
       )}

@@ -2,6 +2,8 @@ import bcrypt from 'bcryptjs';
 import {
   db as dataLayerRef,
   MEMORY_CATEGORIES,
+  levelFromXp,
+  levelRange,
   type DataLayer,
   type UserRecord,
   type ArticleRecord,
@@ -95,9 +97,11 @@ export async function seedInitialData(db: DataLayer): Promise<void> {
     avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=nexus_admin',
     bio: 'Lead architect of NEXUS Portal. Dark-mode zealot & mechanical keyboard collector.',
     role: 'admin',
-    level: 47,
+    // XP mora da odgovara nivou (`levelProgress(xp).level`), jer se nivo NIKAD ne
+    // čita iz keš kolone. Sa 18.750 XP to je nivo 14 — podaci su ranije tvrdili 47.
+    level: levelFromXp(18750),
     xp: 18750,
-    xpNeeded: 25000,
+    xpNeeded: levelRange(levelFromXp(18750)).end,
     karma: 8942,
     badges: ['founder', 'contributor', 'expert', 'veteran'],
     connectedAccounts: {
@@ -120,9 +124,9 @@ export async function seedInitialData(db: DataLayer): Promise<void> {
     avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=NeuroGamer',
     bio: 'Senior editor @ NEXUS. RPG and immersive sim connoisseur.',
     role: 'moderator',
-    level: 32,
+    level: levelFromXp(11200),
     xp: 11200,
-    xpNeeded: 15000,
+    xpNeeded: levelRange(levelFromXp(11200)).end,
     karma: 4310,
     badges: ['contributor'],
     connectedAccounts: {
@@ -144,9 +148,9 @@ export async function seedInitialData(db: DataLayer): Promise<void> {
     avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=hw1',
     bio: 'Overclocking enthusiast. 144Hz is my baseline, 4K is my destination.',
     role: 'member',
-    level: 19,
+    level: levelFromXp(6800),
     xp: 6800,
-    xpNeeded: 8500,
+    xpNeeded: levelRange(levelFromXp(6800)).end,
     karma: 1540,
     badges: ['first_post', 'helpful'],
     connectedAccounts: {
@@ -167,9 +171,9 @@ export async function seedInitialData(db: DataLayer): Promise<void> {
     avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=tech1',
     bio: 'Custom loop watercooling and custom keycaps. Day-job sysadmin.',
     role: 'member',
-    level: 28,
+    level: levelFromXp(9900),
     xp: 9900,
-    xpNeeded: 13000,
+    xpNeeded: levelRange(levelFromXp(9900)).end,
     karma: 2890,
     badges: ['helpful', 'veteran'],
     connectedAccounts: {
